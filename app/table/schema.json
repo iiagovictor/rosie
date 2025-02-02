@@ -1,0 +1,74 @@
+[
+    {
+        "Name": "nome_recurso",
+        "Type": "string"
+    },
+    {
+        "Name": "database",
+        "Type": "string"
+    },
+    {
+        "Name": "tabela",
+        "Type": "string"
+    },
+    {
+        "Name": "classe_recurso",
+        "Type": "string"
+    },
+    {
+        "Name": "servico",
+        "Type": "string"
+    },
+    {
+        "Name": "status",
+        "Type": "string"
+    },
+    {
+        "Name": "motivo",
+        "Type": "string"
+    },
+    {
+        "Name": "tb_fisica_deletada",
+        "Type": "string"
+    },
+    {
+        "Name": "dt_criacao",
+        "Type": "string"
+    },
+    {
+        "Name": "dias_da_criacao",
+        "Type": "int"
+    },
+    {
+        "Name": "dt_ultima_atualizacao",
+        "Type": "string"
+    },
+    {
+        "Name": "dias_ultima_atualizacao",
+        "Type": "int"
+    },
+    {
+        "Name": "qtd_execution",
+        "Type": "string"
+    },
+    {
+        "Name": "tamanho",
+        "Type": "string"
+    },
+    {
+        "Name": "tipo_recurso",
+        "Type": "string"
+    },
+    {
+        "Name": "status_connection",
+        "Type": "string"
+    },
+    {
+        "Name": "connections",
+        "Type": "string"
+    },
+    {
+        "Name": "dt_status",
+        "Type": "string"
+    }
+]

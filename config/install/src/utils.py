@@ -1,9 +1,12 @@
-from constants import *
+import sys
 import os
 from getpass import getpass
 import inquirer
 import time
 import boto3
+from botocore.exceptions import ClientError
+sys.path.append(os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__)))))
+from config.constants import *
 
 def clear():
     os.system('cls' if os.name == 'nt' else 'clear')
@@ -196,7 +199,7 @@ def lifecycle_module(resource_name: str, lifecycle_allowed: list) -> dict:
 
 def get_quarantine(resource_name: str, values: list) -> dict:
     print_separator()
-    quarantine = validate_bool_input(f"\nCaso o recurso {resource_name} não tenha definido as classes permitidas {YELLOW_START}{values}{END}, deseja colocá-lo o recurso em quarentena por um tempo?\nCaso não, o recurso será deletado {BLUE_START}imediatamente{END}.\n{YELLOW_START}(y/n){END}: ")
+    quarantine = validate_bool_input(f"\nCaso o recurso {resource_name} não tenha definido as classes permitidas {YELLOW_START}{values}{END}, deseja colocá-lo em quarentena por um tempo?\nCaso não, o recurso será deletado {BLUE_START}imediatamente{END}.\n{YELLOW_START}(y/n){END}: ")
     if quarantine:
         quarantine_days = validate_number_input(f"Qual o tempo de quarentena {YELLOW_START}(em dias){END} que deseja configurar para o recurso {resource_name} que não possua as classes permitidas {YELLOW_START}{values}{END}?\n(depois deste prazo, o recurso será deletado {BLUE_START}imediatamente{END}): ", 6, 'MAIOR')
         return {
@@ -228,6 +231,16 @@ def get_aws_account_info():
     AWS_ACCESS_KEY_ID = validate_input(f"{BLUE_START}2. Informe a chave de acesso da sua conta AWS:{END} ", "string")
     AWS_SECRET_ACCESS_KEY = validate_input(f"{BLUE_START}3. Informe a chave secreta da sua conta AWS:{END} ", "string")
     AWS_SESSION_TOKEN = validate_input(f"{BLUE_START}4. Informe o token de sessão da sua conta AWS:{END} ", "password")
+    print(f"{BLUE_START}5. Informe a região da sua conta AWS:{END}")
+    AWS_REGION = inquirer.prompt([
+        inquirer.List('region',
+            message=f"Selecione a região desejada",
+            choices=[
+                f"sa-east-1",
+                f"us-east-1"
+            ]
+        )
+    ])['region']
 
     print(f"\n🔍 Vamos validar as informações fornecidas...\n")
 

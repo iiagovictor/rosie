@@ -1,8 +1,9 @@
 import inquirer
-from constants import *
-from utils import *
+from ..constants import *
+from config.install.src.utils import *
 from datetime import datetime
 import json
+from croniter import croniter, CroniterBadCronError, CroniterBadDateError
 
 class RosieInstaller:
     def __init__(self):
@@ -56,6 +57,7 @@ class RosieInstaller:
         self.select_installation_tool()
         self.configure_monitoring_modules()
         legacy = self.check_legacy(self.date)
+        self.cron_expression = self.get_trigger_info()
         self.generate_config_file(legacy)
 
     def get_aws_account_info(self):
@@ -68,6 +70,21 @@ class RosieInstaller:
                 "AWS_SECRET_ACCESS_KEY": AWS_SECRET_ACCESS_KEY,
                 "AWS_SESSION_TOKEN": AWS_SESSION_TOKEN,
             }
+    
+    def get_trigger_info(self):
+        cron_expression = validate_input("\nInforme a expressão CRON que deseja definir para disparar a execução da ROSIE: ", "string")
+        while True:
+            try:
+                croniter(cron_expression)
+                break
+            except CroniterBadCronError:
+                print(f"{RED_START}{BOLD_START}>>> Expressão CRON inválida, por favor, digite uma expressão válida.{END}\n")
+                cron_expression = validate_input("Informe a expressão CRON que deseja definir para disparar a execução da ROSIE: ", "string")
+            except CroniterBadDateError:
+                print(f"{RED_START}{BOLD_START}>>> Data inválida, por favor, digite uma data válida.{END}\n")
+                cron_expression = validate_input("Informe a expressão CRON que deseja definir para disparar a execução da ROSIE: ", "string")
+        
+        return cron_expression
 
     def select_installation_tool(self):
         self.clear()
@@ -75,10 +92,10 @@ class RosieInstaller:
         print(f"\nQual ferramenta deseja utilizar para instalar o Housekeeping Consumer Tool?")
         questions = [
             inquirer.List('type_of_installation',
-                        message="Selecione a ferramenta desejada",
+                        message=f"Selecione a ferramenta desejada {YELLOW_START}(O terraform deve está instalado localmente){END}",
                         choices=[
                             f"Boto3",
-                            f"Terraform {YELLOW_START}(O terraform deve está instalado localmente){END}",
+                            f"Terraform",
                         ],
                     ),
         ]
@@ -105,9 +122,10 @@ class RosieInstaller:
                 self.print_separator()
                 input(f"\nPressione {BLUE_START}ENTER{END} para continuar...")
                 self.clear()
-
+    
     def generate_config_file(self, legacy):
-        with open(f"../app/config.json", "w") as file:
+        config_path = os.path.join(os.path.dirname(__file__), "../../app/config.json")
+        with open(config_path, "w") as file:
             data = {
                 "ROSIE_INFOS": {
                     "INSTALLATION": {
@@ -115,9 +133,10 @@ class RosieInstaller:
                         "AWS_ACCOUNT": self.account_info,
                         "LEGACY": legacy,
                         "RUNTIME": {
-                            "ROLE_ARN": "",
-                            "DATABASE_NAME": "",
-                            "TABLE_NAME": "",
+                            "ROLE_ARN": "rosie",
+                            "DATABASE_NAME": "workspace_db",
+                            "TABLE_NAME": "rosie_control",
+                            "CRON_EXPRESSION": self.cron_expression,
                             "MONITORING": self.monitoring,
                         }
                     }

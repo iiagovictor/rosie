@@ -1,0 +1,18 @@
+[
+    {
+        "Name": "ano_dt_safra",
+        "Type": "string"
+    },
+    {
+        "Name": "mes_dt_safra",
+        "Type": "string"
+    },
+    {
+        "Name": "dia_dt_safra",
+        "Type": "string"
+    },
+    {
+        "Name": "tipo",
+        "Type": "string"
+    }
+]
