@@ -40,7 +40,7 @@ class RosieInstaller:
                 ],
             }
         ]
-        self.date = datetime.now().strftime("%d/%m/%Y")
+        self.date = datetime.now().strftime("%Y-%m-%d")
         self.monitoring = {}
         self.type_of_installation = None
         self.account_info = {}
@@ -63,8 +63,9 @@ class RosieInstaller:
     def get_aws_account_info(self):
         validate_account = False
         while not validate_account:
-            validate_account, ACCOUNT_ID, AWS_ACCESS_KEY_ID, AWS_SECRET_ACCESS_KEY, AWS_SESSION_TOKEN = get_aws_account_info()
+            validate_account, ACCOUNT_ID, AWS_ACCESS_KEY_ID, AWS_SECRET_ACCESS_KEY, AWS_SESSION_TOKEN, AWS_REGION = get_aws_account_info()
             self.account_info = {
+                "AWS_REGION": AWS_REGION,
                 "AWS_ACCOUNT_ID": ACCOUNT_ID,
                 "AWS_ACCESS_KEY_ID": AWS_ACCESS_KEY_ID,
                 "AWS_SECRET_ACCESS_KEY": AWS_SECRET_ACCESS_KEY,

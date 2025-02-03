@@ -4,7 +4,6 @@ from getpass import getpass
 import inquirer
 import time
 import boto3
-from botocore.exceptions import ClientError
 sys.path.append(os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__)))))
 from config.constants import *
 
@@ -217,13 +216,15 @@ def check_legacy(date: str) -> dict:
     if legacy:
         adequacy_term = validate_number_input(f"\nInforme o prazo {YELLOW_START}(em dias){END} para que os recursos na conta AWS seja adequado de acordo com a padronização definida {YELLOW_START}(mínimo 90 dias){END}: ", 89, 'MAIOR')
         return {
-            "LEGACY": legacy,
-            "ADEQUACY_TERM": adequacy_term
+            "ENABLED": legacy,
+            "ADEQUACY_TERM": adequacy_term,
+            "DATE_START": date
         }
     else:
         return {
-            "LEGACY": legacy,
-            "ADEQUACY_TERM": None
+            "ENABLED": legacy,
+            "ADEQUACY_TERM": None,
+            "DATE_START": None
         }
 
 def get_aws_account_info():
@@ -246,7 +247,7 @@ def get_aws_account_info():
 
     validate_account = validate_aws_account(ACCOUNT_ID, AWS_ACCESS_KEY_ID, AWS_SECRET_ACCESS_KEY, AWS_REGION)
 
-    return validate_account, ACCOUNT_ID, AWS_ACCESS_KEY_ID, AWS_SECRET_ACCESS_KEY, AWS_SESSION_TOKEN
+    return validate_account, ACCOUNT_ID, AWS_ACCESS_KEY_ID, AWS_SECRET_ACCESS_KEY, AWS_SESSION_TOKEN, AWS_REGION
 
 def validate_aws_account(ACCOUNT_ID, AWS_ACCESS_KEY_ID, AWS_SECRET_ACCESS_KEY, AWS_REGION):
     print(f"{YELLOW_START}🔍 Validando informações...{END}")
