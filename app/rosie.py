@@ -5,6 +5,7 @@ from uuid import uuid4
 import sys
 
 class RosieLifecycleManager:
+    
     def __init__(self,
                  config: dict, 
                  date_status: str,
@@ -39,6 +40,7 @@ class RosieLifecycleManager:
             'rosie-data_catalog_monitoring',
             'rosie-s3_monitoring',
             'rosie-orquestrador',
+            'ROSIE'
             ]:
             return 'ROSIE', 'ignore', 'IGNORE - Recurso de monitoramento da ROSIE.', None, 'ROSIE'
 
@@ -231,6 +233,73 @@ class RosieTableMonitor:
         partition_list.append(input_dict.copy())
         return partition_list
     
+class RosieUtils:
+    def __init__(self):
+        pass
+
+    def get_size_s3(self, client: boto3.client, bucket: str, folder: str):
+        tmp_size_list = []
+
+        response = client.list_objects_v2(
+            Bucket=bucket,
+            Prefix=folder,
+            Delimiter='/'
+        )
+
+        if "CommonPrefixes" in response:
+            for r in response['CommonPrefixes']:
+                response = client.list_objects_v2(
+                    Bucket=bucket,
+                    Prefix=r['Prefix'],
+                    Delimiter='/'
+                )
+                files = response.get('Contents')
+                if files:
+                    for file in files:
+                        tmp_size_list.append(file['Size'])
+        
+        elif "Contents" in response:
+            files = response.get('Contents')
+            if files:
+                for file in files:
+                    tmp_size_list.append(file['Size'])
+
+        total_bytes = 0
+        for size in tmp_size_list:
+            total_bytes += size
+
+        total_size = total_bytes*0.000001
+        total_size = "%.2f" % total_size
+
+        return f"{total_size}mb"
+    
+    def creation_date_s3(self, client: boto3.client, bucket: str, folder: str):
+
+        tmp_created_in = []
+
+        response = client.list_objects_v2(
+            Bucket=bucket,
+            Prefix=folder,
+            Delimiter='/'
+        )
+
+        if "Contents" in response:
+            for r in response['Contents']:
+                tmp_created_in.append(r['LastModified'].strftime('%Y-%m-%d'))
+
+        if "CommonPrefixes" in response:
+            for r in response['CommonPrefixes']:
+                response = client.list_objects_v2(
+                    Bucket=bucket,
+                    Prefix=r['Prefix']
+                )
+                files = response.get('Contents')
+                if files:
+                    for file in files:
+                        tmp_created_in.append(file['LastModified'].strftime('%Y-%m-%d'))
+
+        return min(tmp_created_in), max(tmp_created_in)
+    
 class Rosie:
     def __init__(self, config):
         self.session = boto3.Session()
@@ -238,6 +307,7 @@ class Rosie:
         self.date_status = str(datetime.datetime.now().strftime('%Y-%m-%d'))
         self.lifecycle_manager = RosieLifecycleManager(config, self.date_status)
         self.table_monitor = RosieTableMonitor(config, self.date_status)
+        self.rosie_utils = RosieUtils()
 
     def monitor_glue(
             self
@@ -309,6 +379,8 @@ class Rosie:
                     creation_date=creation_date,
                     last_execution_date=last_execution_date
                 )
+
+                print(f"Tipo: {resource_type}")
 
                 verify_item = {
                     'nome_recurso': job_name,
@@ -404,8 +476,6 @@ class Rosie:
                     last_execution_date=last_execution_date
                 )
 
-                print(f"Tipo: {type(retention_days)}")
-
                 verify_item = {
                     'nome_recurso': state_machine_name,
                     'tipo_gerenciamento': type_of_management,
@@ -427,6 +497,117 @@ class Rosie:
             next_token = response.get('nextToken')
             if not next_token:
                 break
+
+        self.table_monitor.save_result(verify_list=verify, service=service)
+        self.table_monitor.create_partition(glue_client=glue_client, service=service)
+
+    def monitor_s3(
+            self,
+            buckets: list = [{'bucket': 'itau-self-wkp-us-east-1-197045787308', 'prefixes': ['', 'dados/'], 'objectNotDelete': ['dados/']}]
+        ):
+        
+        client = self.session.client('s3')
+        glue_client = self.session.client('glue')
+        service = 'S3'
+        service = service.upper()
+
+        verify = []
+        
+        for bucket in buckets:
+            for prefix in bucket['prefixes']:
+                temp_list = [{'folder': []}, {'file': []}]
+                response = client.list_objects(
+                    Bucket=bucket['bucket'],
+                    Prefix=prefix,
+                    Delimiter='/'
+                )
+                if response.get('CommonPrefixes') is not None:
+                    for item in response.get('CommonPrefixes'):
+                        if len(prefix.split('/')) > 2:
+                            pref = item['Prefix']
+                        else:
+                            pref = item.get('Prefix')
+                        
+                        if not pref in bucket['objectNotDelete'] and not pref in bucket['prefixes']:
+                            if pref not in temp_list[0]['folder']:
+                                temp_list[0]['folder'].append(pref)
+                            else:
+                                print(f'Pasta {pref} já foi adicionada')
+                                continue
+                
+                if 'Contents' in response:
+                    for item in response['Contents']:
+                        if len(prefix.split('/')) > 2:
+                            pref = item['Key']
+                        else:
+                            pref = item.get('Key')
+                    
+                        if not pref in bucket['objectNotDelete'] and not pref in bucket['prefixes']:
+                            if pref not in temp_list[1]['file']:
+                                temp_list[1]['file'].append(pref)
+                            else:
+                                print(f'Arquivo {pref} já foi adicionado')
+                                continue
+                
+                for item in temp_list:
+                    typeOfObject = list(item.keys())[0]
+                    objects = list(item.values())[0]
+
+                    for obj in objects:
+                        if '/' in obj:
+                            if obj.split('/')[-1:] == ['']:
+                                sub_name = obj.split('/')[-2]
+                            else:
+                                sub_name = obj.split('/')[-1]
+                        else:
+                            sub_name = obj
+
+                        creation_date, last_put_data_object = self.rosie_utils.creation_date_s3(
+                            client=client, 
+                            bucket=bucket['bucket'], 
+                            folder=obj
+                            )
+                        created_in = (datetime.datetime.strptime(self.date_status, '%Y-%m-%d') - datetime.datetime.strptime(creation_date, '%Y-%m-%d')).days
+                        updated_in = (datetime.datetime.strptime(self.date_status, '%Y-%m-%d') - datetime.datetime.strptime(last_put_data_object, '%Y-%m-%d')).days
+                        size = self.rosie_utils.get_size_s3(client=client, bucket=bucket['bucket'], folder=obj)
+
+                        if typeOfObject == 'folder' and (prefix in bucket['prefixes'] and prefix != ''):
+                            resource_class, status, reason, retention_days, type_of_management = self.lifecycle_manager.verify_lifecycle(
+                                monitoring=f'{service}_MONITORING',
+                                client=client,
+                                resource_name=sub_name,
+                                creation_date=creation_date,
+                                last_execution_date=creation_date
+                            )
+                        elif sub_name == 'ROSIE':
+                            resource_class = 'N/A'
+                            status = 'ignore'
+                            reason = 'IGNORE - Recurso de monitoramento da ROSIE.'
+                            retention_days = None
+                            type_of_management = 'ROSIE'
+                        else:
+                            resource_class = 'N/A'
+                            status = 'delete'
+                            reason = 'DELETE - Objeto fora do diretório de monitoramento.'
+                            retention_days = None
+                            type_of_management = self.config['ROSIE_INFOS']['INSTALLATION']['RUNTIME']['MONITORING'][f'{service}_MONITORING']['LIFECYCLE']['TYPE_OF_MANAGEMENT']
+
+                        verify_item = {
+                            'nome_recurso': f's3://{bucket["bucket"]}/{obj}',
+                            'tipo_gerenciamento': type_of_management,
+                            'classe_recurso': resource_class,
+                            'servico': service,
+                            'status': status,
+                            'motivo': reason,
+                            'dt_criacao': creation_date,
+                            'dias_criacao': created_in,
+                            'dt_ultima_atualizacao': last_put_data_object,
+                            'dias_ultima_atualizacao': updated_in,
+                            'dt_status': self.date_status,
+                            'tamanho': size
+                        }
+
+                        verify.append(verify_item)
 
         self.table_monitor.save_result(verify_list=verify, service=service)
         self.table_monitor.create_partition(glue_client=glue_client, service=service)
