@@ -45,4 +45,4 @@ rosie_module = importlib.util.module_from_spec(spec)
 spec.loader.exec_module(rosie_module)
 
 rosie = rosie_module.Rosie(config=config)
-rosie.monitor_glue()
+rosie.monitor_sfn()

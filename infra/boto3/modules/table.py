@@ -37,7 +37,7 @@ def create(
                     'Description': 'Tabela de controle da ROSIE',
                     'StorageDescriptor': {
                         'Columns': schema,
-                        'Location': f"s3://{bucket}/ROSIE/table/{table_name}/",
+                        'Location': f"s3://{bucket}/ROSIE/{table_name}/",
                         'InputFormat': 'org.apache.hadoop.mapred.TextInputFormat',
                         'OutputFormat': 'org.apache.hadoop.hive.ql.io.HiveIgnoreKeyTextOutputFormat',
                         'Compressed': False,

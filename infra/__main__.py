@@ -13,6 +13,12 @@ if __name__ == "__main__":
     config = extract_config()
     type_of_installation = config['ROSIE_INFOS']['INSTALLATION']['TYPE_OF_INSTALLATION']
     if type_of_installation == 'Boto3':
-        subprocess.call(['python3', 'infra/boto3'])
+        try:
+            subprocess.call(['python3', 'infra/boto3'])
+        except Exception as e:
+            subprocess.call(['python', 'infra/boto3'])
     elif type_of_installation == 'Terraform':
-        subprocess.call(['python3', 'infra/terraform'])
+        try:
+            subprocess.call(['python3', 'infra/terraform'])
+        except Exception as e:
+            subprocess.call(['python', 'infra/terraform'])

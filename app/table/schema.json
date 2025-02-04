@@ -12,6 +12,10 @@
         "Type": "string"
     },
     {
+        "Name": "tipo_gerenciamento",
+        "Type": "string"
+    },
+    {
         "Name": "classe_recurso",
         "Type": "string"
     },
@@ -26,6 +30,10 @@
     {
         "Name": "motivo",
         "Type": "string"
+    },
+    {
+        "Name": "lifecycle",
+        "Type": "int"
     },
     {
         "Name": "tb_fisica_deletada",

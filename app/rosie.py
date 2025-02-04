@@ -33,6 +33,16 @@ class RosieLifecycleManager:
     ):
         lifecycle = self.get_lifecycle(monitoring)
 
+        if resource_name in [
+            'rosie-step_functions_monitoring',
+            'rosie-glue_monitoring',
+            'rosie-data_catalog_monitoring',
+            'rosie-s3_monitoring',
+            'rosie-orquestrador',
+            ]:
+            return 'ROSIE', 'ignore', 'IGNORE - Recurso de monitoramento da ROSIE.', None, 'ROSIE'
+
+
         if created_in is None:
             created_in = self.calculate_days(self.date_status, creation_date)
         if execution_in is None:
@@ -44,7 +54,7 @@ class RosieLifecycleManager:
             start_in = self.calculate_days(self.date_status, date_start)
 
             if start_in <= adequacy_term:
-                return 'legacy', f'LEGACY - Recurso dentro do prazo de adequacao de {adequacy_term} dia(s).', adequacy_term
+                return 'N/A', 'legacy', f'LEGACY - Recurso dentro do prazo de adequacao de {adequacy_term} dia(s).', adequacy_term, lifecycle['TYPE_OF_MANAGEMENT']
 
         if lifecycle['TYPE_OF_MANAGEMENT'] == 'UNIQUE':
             return self.handle_unique_management(lifecycle, created_in)
@@ -55,18 +65,19 @@ class RosieLifecycleManager:
         if lifecycle['TYPE_OF_MANAGEMENT'] == 'TAG':
             return self.handle_tag_management(lifecycle, monitoring, client, resource_name, created_in, execution_in)
 
-        return 'N/A', 'unknown', 'TYPE_OF_MANAGEMENT não cadastrado', None
+        return 'N/A', 'unknown', 'TYPE_OF_MANAGEMENT não cadastrado', None, lifecycle['TYPE_OF_MANAGEMENT']
 
     def handle_unique_management(self, lifecycle: dict, created_in: int):
         if created_in > (lifecycle['RETENTION_DAYS'] - lifecycle['DELETION_ALERT_COMING_DAYS']) and created_in <= lifecycle['RETENTION_DAYS']:
-            return 'deletion_coming', f'DELETE COMING - Tempo limite de retencao expirara em {abs(lifecycle["RETENTION_DAYS"] - created_in) + 1} dia(s).', lifecycle['RETENTION_DAYS']
+            return 'deletion_coming', f'DELETE COMING - Tempo limite de retencao expirara em {abs(lifecycle["RETENTION_DAYS"] - created_in) + 1} dia(s).', lifecycle['RETENTION_DAYS'], lifecycle['TYPE_OF_MANAGEMENT']
         elif created_in > lifecycle['RETENTION_DAYS']:
-            return 'UNIQUE', 'delete', 'DELETE - Tempo limite de retencao expirou.', lifecycle['RETENTION_DAYS']
+            return 'UNIQUE', 'delete', 'DELETE - Tempo limite de retencao expirou.', lifecycle['RETENTION_DAYS'], lifecycle['TYPE_OF_MANAGEMENT']
         else:
-            return 'UNIQUE', 'keep', 'KEEP - Recursos dentro do tempo limite de retencao.', lifecycle['RETENTION_DAYS']
+            return 'UNIQUE', 'keep', 'KEEP - Recursos dentro do tempo limite de retencao.', lifecycle['RETENTION_DAYS'], lifecycle['TYPE_OF_MANAGEMENT']
 
     def handle_resource_name_management(self, lifecycle: dict, resource_name: str, created_in: int, execution_in: int):
         values = [value['VALUE'].upper() for value in lifecycle['DETAILS']['ALLOWED_VALUES']]
+        type_of_management = lifecycle['TYPE_OF_MANAGEMENT']
         separator = lifecycle['DETAILS']['SEPARATOR']
         affix = lifecycle['DETAILS']['AFFIX']
 
@@ -75,10 +86,11 @@ class RosieLifecycleManager:
             return self.handle_irregular_format(lifecycle, created_in)
 
         retention_info = next(value for value in lifecycle['DETAILS']['ALLOWED_VALUES'] if value['VALUE'].upper() == classification)
-        return self.handle_retention(retention_info, created_in, execution_in, classification)
+        return self.handle_retention(retention_info, created_in, execution_in, classification, type_of_management)
     
     def handle_tag_management(self, lifecycle: dict, monitoring: str, client: boto3.client, resource_name: str, created_in: int, execution_in: int):
         tag_name = lifecycle['DETAILS']['TAG_NAME']
+        type_of_management = lifecycle['TYPE_OF_MANAGEMENT']
         values = [value['VALUE'].upper() for value in lifecycle['DETAILS']['ALLOWED_VALUES']]
 
         if monitoring == 'GLUE_MONITORING':
@@ -94,7 +106,7 @@ class RosieLifecycleManager:
             return self.handle_irregular_format(lifecycle, created_in)
         
         retention_info = next(value for value in lifecycle['DETAILS']['ALLOWED_VALUES'] if value['VALUE'].upper() == classification)
-        return self.handle_retention(retention_info, created_in, execution_in, classification)
+        return self.handle_retention(retention_info, created_in, execution_in, classification, type_of_management)
 
     def classify_resource(self, resource_name, separator, affix, values):
         parts = resource_name.upper().split(separator)
@@ -111,13 +123,13 @@ class RosieLifecycleManager:
     def handle_irregular_format(self, lifecycle, created_in):
         if lifecycle['DETAILS']['IRREGULAR_FORMAT']['QUARANTINE']:
             if created_in <= lifecycle['DETAILS']['IRREGULAR_FORMAT']['QUARANTINE_DAYS']:
-                return 'N/A', 'quarantine', f'QUARANTINE - Recurso nao possui uma classificacao valida, e sera mantido por {lifecycle["DETAILS"]["IRREGULAR_FORMAT"]["QUARANTINE_DAYS"]} dia(s) para que seja adequado.', lifecycle['DETAILS']['IRREGULAR_FORMAT']['QUARANTINE_DAYS']
+                return 'N/A', 'quarantine', f'QUARANTINE - Recurso nao possui uma classificacao valida, e sera mantido por {lifecycle["DETAILS"]["IRREGULAR_FORMAT"]["QUARANTINE_DAYS"]} dia(s) para que seja adequado.', lifecycle['DETAILS']['IRREGULAR_FORMAT']['QUARANTINE_DAYS'], lifecycle['TYPE_OF_MANAGEMENT']
             else:
-                return 'N/A', 'delete', 'DELETE - Recurso deletado por nao possuir uma classificacao valida.', lifecycle['DETAILS']['IRREGULAR_FORMAT']['QUARANTINE_DAYS']
+                return 'N/A', 'delete', 'DELETE - Recurso deletado por nao possuir uma classificacao valida.', lifecycle['DETAILS']['IRREGULAR_FORMAT']['QUARANTINE_DAYS'], lifecycle['TYPE_OF_MANAGEMENT']
         else:
-            return 'N/A', 'delete', 'DELETE - Recurso deletado por nao possuir uma classificacao valida.', None
+            return 'N/A', 'delete', 'DELETE - Recurso deletado por nao possuir uma classificacao valida.', None, lifecycle['TYPE_OF_MANAGEMENT']
 
-    def handle_retention(self, retention_info, created_in, execution_in, classification):
+    def handle_retention(self, retention_info, created_in, execution_in, classification, type_of_management):
         retention_days = retention_info['RETENTION_DAYS']
         deletion_alert_coming_days = retention_info['DELETION_ALERT_COMING_DAYS']
         check_idle = retention_info['CHECK_IDLE']
@@ -126,21 +138,21 @@ class RosieLifecycleManager:
 
         if retention_info['RETENTION']:
             if created_in > (retention_days - deletion_alert_coming_days) and created_in <= retention_days:
-                return classification, 'deletion_coming', f'DELETE COMING - Tempo limite de retencao expirara em {abs(retention_days - created_in) + 1} dia(s).', retention_days
+                return classification, 'deletion_coming', f'DELETE COMING - Tempo limite de retencao expirara em {abs(retention_days - created_in) + 1} dia(s).', retention_days, type_of_management
             elif created_in > retention_days:
-                return classification, 'delete', 'DELETE - Tempo limite de retencao expirou.', retention_days
+                return classification, 'delete', 'DELETE - Tempo limite de retencao expirou.', retention_days, type_of_management
             else:
-                return classification, 'keep', 'KEEP - Recursos dentro do tempo limite de retencao.', retention_days
+                return classification, 'keep', 'KEEP - Recursos dentro do tempo limite de retencao.', retention_days, type_of_management
         else:
             if check_idle:
                 if execution_in > (idle_days - deletion_alert_coming_days) and execution_in <= idle_days:
-                    return classification, 'deletion_coming', f'DELETE COMING - Recurso ocioso por {execution_in} dia(s), e sera deletado em {abs(idle_days - execution_in) + 1} dia(s).', None
+                    return classification, 'deletion_coming', f'DELETE COMING - Recurso ocioso por {execution_in} dia(s), e sera deletado em {abs(idle_days - execution_in) + 1} dia(s).', None, type_of_management
                 elif execution_in > idle_days:
-                    return classification, 'delete', f'DELETE - Recurso ocioso por {execution_in} dia(s). Tempo limite de {idle_days} dia(s) de ociosidade expirou.', None
+                    return classification, 'delete', f'DELETE - Recurso ocioso por {execution_in} dia(s). Tempo limite de {idle_days} dia(s) de ociosidade expirou.', None, type_of_management
                 else:
-                    return classification, 'keep', 'KEEP - Recurso ativo e sem ociosidade.', None
+                    return classification, 'keep', 'KEEP - Recurso ativo e sem ociosidade.', None, type_of_management
             else:
-                return classification, 'keep', 'KEEP - Recurso ativo. Não há verificação de ociosidade.', None
+                return classification, 'keep', 'KEEP - Recurso ativo. Não há verificação de ociosidade.', None, type_of_management
 
 class RosieTableMonitor:
 
@@ -252,7 +264,6 @@ class Rosie:
 
                 creation_date = str(job['CreatedOn'].strftime('%Y-%m-%d'))
                 created_in = (datetime.datetime.strptime(self.date_status, '%Y-%m-%d') - datetime.datetime.strptime(creation_date, '%Y-%m-%d')).days
-                status = 'keep'
                 worker_type = job.get('WorkerType', 'N/A')
                 number_of_workers = job.get('NumberOfWorkers', 'N/A')
                 glue_version = job.get('GlueVersion', 'N/A')
@@ -291,7 +302,7 @@ class Rosie:
                     last_execution_date = creation_date
                     execution_in = (datetime.datetime.strptime(self.date_status, '%Y-%m-%d') - datetime.datetime.strptime(creation_date, '%Y-%m-%d')).days
 
-                resource_class, status, reason, retention_days = self.lifecycle_manager.verify_lifecycle(
+                resource_class, status, reason, retention_days, type_of_management = self.lifecycle_manager.verify_lifecycle(
                     monitoring=f'{service}_MONITORING',
                     client=client,
                     resource_name=job_name,
@@ -301,6 +312,7 @@ class Rosie:
 
                 verify_item = {
                     'nome_recurso': job_name,
+                    'tipo_gerenciamento': type_of_management,
                     'classe_recurso': resource_class,
                     'servico': service,
                     'status': status,
@@ -322,3 +334,99 @@ class Rosie:
 
         self.table_monitor.save_result(verify_list=verify, service=service)
         self.table_monitor.create_partition(glue_client=client, service=service)
+
+    def monitor_sfn(
+            self
+        ):
+        
+        client = self.session.client('stepfunctions')
+        glue_client = self.session.client('glue')
+        service = 'STEP_FUNCTIONS'
+        service = service.upper()
+
+        verify = []
+        next_token = None
+
+        while True:
+            if next_token:
+                response = client.list_state_machines(
+                    nextToken=next_token
+                    )
+            else:
+                response = client.list_state_machines()
+
+            for state_machine in response['stateMachines']:
+                state_machine_name = state_machine['name']
+                state_machine_arn = state_machine['stateMachineArn']
+
+                creation_date = str(state_machine['creationDate'].strftime('%Y-%m-%d'))
+                created_in = (datetime.datetime.strptime(self.date_status, '%Y-%m-%d') - datetime.datetime.strptime(creation_date, '%Y-%m-%d')).days
+                resource_type = state_machine['type']
+
+                total_executions = 0
+                next_token_sm = None
+                last_execution = None
+
+                while True:
+                    if next_token_sm:
+                        executions = client.list_executions(
+                            stateMachineArn=state_machine_arn,
+                            nextToken=next_token_sm
+                            )
+                    else:
+                        executions = client.list_executions(
+                            stateMachineArn=state_machine_arn
+                            )
+                    
+                    total_executions += len(executions['executions'])
+
+                    if executions['executions'] and last_execution is None:
+                        last_execution = executions['executions'][0]
+
+                    next_token_sm = executions.get('nextToken')
+                    if not next_token_sm:
+                        break
+
+                if last_execution:
+                    last_execution = executions['executions'][0]
+                    last_execution_date = str(last_execution['startDate'].strftime('%Y-%m-%d'))
+                    execution_in = (datetime.datetime.strptime(self.date_status, '%Y-%m-%d') - datetime.datetime.strptime(last_execution_date, '%Y-%m-%d')).days
+
+                else:
+                    last_execution_date = creation_date
+                    execution_in = (datetime.datetime.strptime(self.date_status, '%Y-%m-%d') - datetime.datetime.strptime(creation_date, '%Y-%m-%d')).days
+
+                resource_class, status, reason, retention_days, type_of_management = self.lifecycle_manager.verify_lifecycle(
+                    monitoring=f'{service}_MONITORING',
+                    client=client,
+                    resource_name=state_machine_name,
+                    creation_date=creation_date,
+                    last_execution_date=last_execution_date
+                )
+
+                print(f"Tipo: {type(retention_days)}")
+
+                verify_item = {
+                    'nome_recurso': state_machine_name,
+                    'tipo_gerenciamento': type_of_management,
+                    'classe_recurso': resource_class,
+                    'servico': service,
+                    'status': status,
+                    'motivo': reason,
+                    'dt_criacao': creation_date,
+                    'dias_criacao': created_in,
+                    'dt_ultima_atualizacao': last_execution_date,
+                    'dias_ultima_atualizacao': execution_in,
+                    'qtd_execucoes': total_executions,
+                    'tipo_recurso': resource_type,
+                    'dt_status': self.date_status,
+                }
+
+                verify.append(verify_item)
+
+            next_token = response.get('nextToken')
+            if not next_token:
+                break
+
+        self.table_monitor.save_result(verify_list=verify, service=service)
+        self.table_monitor.create_partition(glue_client=glue_client, service=service)

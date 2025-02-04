@@ -37,12 +37,12 @@ def create(
                 'ScriptLocation': script_location,
                 'PythonVersion': '3.9'
             },
-            Connections={
-                'Connections': [
-                    'analytics-glue-connection-aza',
-                    'analytics-glue-connection-azc'
-                ]
-            },
+            # Connections={
+            #     'Connections': [
+            #         'analytics-glue-connection-aza',
+            #         'analytics-glue-connection-azc'
+            #     ]
+            # },
             MaxCapacity=0.0625,
             GlueVersion='5.0',
             Timeout=60,
