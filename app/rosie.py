@@ -40,7 +40,8 @@ class RosieLifecycleManager:
             'rosie-data_catalog_monitoring',
             'rosie-s3_monitoring',
             'rosie-orquestrador',
-            'ROSIE'
+            'ROSIE',
+            'rosie-control_table',
             ]:
             return 'ROSIE', 'ignore', 'IGNORE - Recurso de monitoramento da ROSIE.', None, 'ROSIE'
 
@@ -240,35 +241,33 @@ class RosieUtils:
     def get_size_s3(self, client: boto3.client, bucket: str, folder: str):
         tmp_size_list = []
 
-        response = client.list_objects_v2(
+        paginator = client.get_paginator('list_objects_v2')
+        response_iterator = paginator.paginate(
             Bucket=bucket,
-            Prefix=folder,
-            Delimiter='/'
+            Prefix=folder
         )
 
-        if "CommonPrefixes" in response:
-            for r in response['CommonPrefixes']:
-                response = client.list_objects_v2(
-                    Bucket=bucket,
-                    Prefix=r['Prefix'],
-                    Delimiter='/'
-                )
-                files = response.get('Contents')
-                if files:
-                    for file in files:
-                        tmp_size_list.append(file['Size'])
-        
-        elif "Contents" in response:
-            files = response.get('Contents')
-            if files:
-                for file in files:
+        for response in response_iterator:
+            if "Contents" in response:
+                for file in response['Contents']:
                     tmp_size_list.append(file['Size'])
+                    print(f"Found file: {file['Key']} with size: {file['Size']}")
 
-        total_bytes = 0
-        for size in tmp_size_list:
-            total_bytes += size
+            if "CommonPrefixes" in response:
+                for r in response['CommonPrefixes']:
+                    sub_response_iterator = paginator.paginate(
+                        Bucket=bucket,
+                        Prefix=r['Prefix']
+                    )
+                    for sub_response in sub_response_iterator:
+                        files = sub_response.get('Contents')
+                        if files:
+                            for file in files:
+                                tmp_size_list.append(file['Size'])
+                                print(f"Found file in sub-prefix: {file['Key']} with size: {file['Size']}")
 
-        total_size = total_bytes*0.000001
+        total_bytes = sum(tmp_size_list)
+        total_size = total_bytes * 0.000001
         total_size = "%.2f" % total_size
 
         return f"{total_size}mb"
@@ -603,11 +602,82 @@ class Rosie:
                             'dias_criacao': created_in,
                             'dt_ultima_atualizacao': last_put_data_object,
                             'dias_ultima_atualizacao': updated_in,
-                            'dt_status': self.date_status,
-                            'tamanho': size
+                            'tamanho': size,
+                            'dt_status': self.date_status
                         }
 
                         verify.append(verify_item)
+
+        self.table_monitor.save_result(verify_list=verify, service=service)
+        self.table_monitor.create_partition(glue_client=glue_client, service=service)
+
+    def monitor_data_catalog(
+            self,
+            databases: list = ['workspace_db'],
+            buckets: list = [{'bucket': 'itau-self-wkp-us-east-1-197045787308', 'prefixes': ['', 'dados/'], 'objectNotDelete': ['dados/']}]
+        ):
+        
+        s3_client = self.session.client('s3')
+        glue_client = self.session.client('glue')
+        service = 'DATA_CATALOG'
+        verify = []
+        next_token = None
+
+        for database in databases:
+            while True:
+                if next_token:
+                    response = glue_client.get_tables(
+                        DatabaseName=database,
+                        NextToken=next_token
+                        )
+                else:
+                    response = glue_client.get_tables(
+                        DatabaseName=database
+                        )
+                
+                for table in response['TableList']:
+                    path_location = table['StorageDescriptor']['Location'] if 'StorageDescriptor' in table and 'Location' in table['StorageDescriptor'] else ''
+                    table_name = table['Name']
+
+                    creation_date = str(table['CreateTime'].strftime('%Y-%m-%d'))
+                    created_in = (datetime.datetime.strptime(self.date_status, '%Y-%m-%d') - datetime.datetime.strptime(creation_date, '%Y-%m-%d')).days
+                    last_updated = str(table['UpdateTime'].strftime('%Y-%m-%d'))
+                    updated_in = (datetime.datetime.strptime(self.date_status, '%Y-%m-%d') - datetime.datetime.strptime(last_updated, '%Y-%m-%d')).days
+
+                    resource_class, status, reason, retention_days, type_of_management = self.lifecycle_manager.verify_lifecycle(
+                        monitoring=f'{service}_MONITORING',
+                        client=glue_client,
+                        resource_name=table_name,
+                        creation_date=creation_date,
+                        last_execution_date=last_updated
+                    )
+
+                    bucket_name = path_location.split('/')[2]
+                    obj = '/'.join(path_location.split('/')[3:])
+                    size = self.rosie_utils.get_size_s3(client=s3_client, bucket=bucket_name, folder=obj)
+
+                    verify_item = {
+                        'nome_recurso': path_location,
+                        'database': database,
+                        'tabela': table_name,
+                        'tipo_gerenciamento': type_of_management,
+                        'classe_recurso': resource_class,
+                        'servico': service,
+                        'status': status,
+                        'motivo': reason,
+                        'dt_criacao': creation_date,
+                        'dias_criacao': created_in,
+                        'dt_ultima_atualizacao': last_updated,
+                        'dias_ultima_atualizacao': updated_in,
+                        'tamanho': size,
+                        'dt_status': self.date_status,
+                    }
+
+                    verify.append(verify_item)
+
+                next_token = response.get('NextToken')
+                if not next_token:
+                    break
 
         self.table_monitor.save_result(verify_list=verify, service=service)
         self.table_monitor.create_partition(glue_client=glue_client, service=service)
