@@ -15,13 +15,13 @@ def scripts(
     
     try:
         s3 = boto3.client('s3', region_name=region, aws_access_key_id=AWS_ACCESS_KEY_ID, aws_secret_access_key=AWS_SECRET_ACCESS_KEY)
-        s3.upload_file(Filename=f'{os.path.join(os.path.dirname(__file__), "../../../app/config.json")}', Bucket=bucket_name, Key='src/config.json')
-        s3.upload_file(Filename=f'{os.path.join(os.path.dirname(__file__), "../../../app/rosie.py")}', Bucket=bucket_name, Key='src/rosie.py')
+        s3.upload_file(Filename=f'{os.path.join(os.path.dirname(__file__), "../../../app/config.json")}', Bucket=bucket_name, Key='ROSIE/src/config.json')
+        s3.upload_file(Filename=f'{os.path.join(os.path.dirname(__file__), "../../../app/rosie.py")}', Bucket=bucket_name, Key='ROSIE/src/rosie.py')
 
         scripts_path = os.path.join(os.path.dirname(__file__), "../../../app/scripts/")
         for script in os.listdir(scripts_path):
             if script.endswith(".py"):
-                s3.upload_file(Filename=os.path.join(scripts_path, script), Bucket=bucket_name, Key=f'scripts/{script}')
+                s3.upload_file(Filename=os.path.join(scripts_path, script), Bucket=bucket_name, Key=f'ROSIE/scripts/{script}')
         
         print(f"{GREEN_START}{BOLD_START}✅ Scripts carregados com sucesso!{END}")
     except Exception as e:

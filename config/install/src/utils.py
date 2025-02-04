@@ -245,15 +245,21 @@ def get_aws_account_info():
 
     print(f"\n🔍 Vamos validar as informações fornecidas...\n")
 
-    validate_account = validate_aws_account(ACCOUNT_ID, AWS_ACCESS_KEY_ID, AWS_SECRET_ACCESS_KEY, AWS_REGION)
+    validate_account = validate_aws_account(AWS_REGION, ACCOUNT_ID, AWS_ACCESS_KEY_ID, AWS_SECRET_ACCESS_KEY, AWS_SESSION_TOKEN)
+
+    if validate_account:
+        os.environ['AWS_ACCESS_KEY_ID'] = AWS_ACCESS_KEY_ID
+        os.environ['AWS_SECRET_ACCESS_KEY'] = AWS_SECRET_ACCESS_KEY
+        os.environ['AWS_SESSION_TOKEN'] = AWS_SESSION_TOKEN
+        os.environ['AWS_DEFAULT_REGION'] = AWS_REGION
 
     return validate_account, ACCOUNT_ID, AWS_ACCESS_KEY_ID, AWS_SECRET_ACCESS_KEY, AWS_SESSION_TOKEN, AWS_REGION
 
-def validate_aws_account(ACCOUNT_ID, AWS_ACCESS_KEY_ID, AWS_SECRET_ACCESS_KEY, AWS_REGION):
+def validate_aws_account(AWS_REGION: str, ACCOUNT_ID: str, AWS_ACCESS_KEY_ID: str, AWS_SECRET_ACCESS_KEY: str, AWS_SESSION_TOKEN: str) -> bool:
     print(f"{YELLOW_START}🔍 Validando informações...{END}")
 
     try:
-        sts = boto3.client('sts', aws_access_key_id=AWS_ACCESS_KEY_ID, aws_secret_access_key=AWS_SECRET_ACCESS_KEY, region_name=AWS_REGION)
+        sts = boto3.client('sts', region_name=AWS_REGION, aws_access_key_id=AWS_ACCESS_KEY_ID, aws_secret_access_key=AWS_SECRET_ACCESS_KEY, aws_session_token=AWS_SESSION_TOKEN)
         account_id = sts.get_caller_identity().get('Account')
         if account_id != ACCOUNT_ID:
             print(f"\n{RED_START}❌ ID da conta AWS informado não corresponde ao ID da conta autenticada.{END}")

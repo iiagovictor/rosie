@@ -8,15 +8,14 @@ from config.constants import *
 with open(os.path.join(os.path.dirname(__file__), "../../../app/table/schema.json"), 'r') as f:
     schema = json.load(f)
 
-with open(os.path.join(os.path.dirname(__file__), "../../../app/table/schema.json"), 'r') as f:
+with open(os.path.join(os.path.dirname(__file__), "../../../app/table/partitions.json"), 'r') as f:
     partitions = json.load(f)
 
 def create(
+        bucket: str,
         table_name: str, 
         database_name: str,
         region: str,
-        AWS_ACCOUNT_ID: str,
-        REGION: str,
         AWS_ACCESS_KEY_ID: str,
         AWS_SECRET_ACCESS_KEY: str
     ):
@@ -38,7 +37,7 @@ def create(
                     'Description': 'Tabela de controle da ROSIE',
                     'StorageDescriptor': {
                         'Columns': schema,
-                        'Location': f"s3://aws-rosie-{AWS_ACCOUNT_ID}-{REGION}/table/{table_name}/",
+                        'Location': f"s3://{bucket}/ROSIE/table/{table_name}/",
                         'InputFormat': 'org.apache.hadoop.mapred.TextInputFormat',
                         'OutputFormat': 'org.apache.hadoop.hive.ql.io.HiveIgnoreKeyTextOutputFormat',
                         'Compressed': False,
@@ -66,7 +65,7 @@ def create(
                     'Description': 'Tabela de controle da ROSIE',
                     'StorageDescriptor': {
                         'Columns': schema,
-                        'Location': f"s3://aws-rosie-{AWS_ACCOUNT_ID}-{REGION}/table/{table_name}/",
+                        'Location': f"s3://{bucket}/ROSIE/{table_name}/",
                         'InputFormat': 'org.apache.hadoop.mapred.TextInputFormat',
                         'OutputFormat': 'org.apache.hadoop.hive.ql.io.HiveIgnoreKeyTextOutputFormat',
                         'Compressed': False,

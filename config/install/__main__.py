@@ -35,7 +35,6 @@ class RosieInstaller:
                 "name": "DATA CATALOG",
                 "lifecycle": [
                     "UNIQUE",
-                    "TAG",
                     "RESOURCE_NAME",
                 ],
             }

@@ -36,7 +36,7 @@
         "Type": "string"
     },
     {
-        "Name": "dias_da_criacao",
+        "Name": "dias_criacao",
         "Type": "int"
     },
     {
@@ -48,8 +48,8 @@
         "Type": "int"
     },
     {
-        "Name": "qtd_execution",
-        "Type": "string"
+        "Name": "qtd_execucoes",
+        "Type": "int"
     },
     {
         "Name": "tamanho",
