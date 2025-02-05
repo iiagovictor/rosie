@@ -5,21 +5,55 @@ from uuid import uuid4
 import sys
 
 class RosieLifecycleManager:
-    
+    """
+    Classe para gerenciar o ciclo de vida dos recursos
+    monitorados pela ROSIE.
+
+    Args:
+        config (dict): Input do arquivo de configuração.
+        date_status (str): Data de execução do monitoramento.
+
+    Attributes:
+        config (dict): Input do arquivo de configuração.
+        date_status (str): Data de execução do monitoramento.
+        region (str): Região da AWS.
+        account_id (str): ID da conta da AWS.
+    """
     def __init__(self,
-                 config: dict, 
+                 config: dict,
                  date_status: str,
                  ):
-        
         self.config = config
         self.date_status = date_status
         self.region = config['ROSIE_INFOS']['INSTALLATION']['AWS_ACCOUNT']['AWS_REGION']
         self.account_id = config['ROSIE_INFOS']['INSTALLATION']['AWS_ACCOUNT']['AWS_ACCOUNT_ID']
 
-    def get_lifecycle(self, monitoring: str):
+    def get_lifecycle(
+            self,
+            monitoring: str
+            ):
+        """
+        Método para buscar o ciclo de vida do recurso de acordo com o
+        monitoramento.
+
+        Args:
+            monitoring (str): Nome do monitoramento (GLUE_MONITORING,
+            S3_MONITORING, STEP_FUNCTIONS_MONITORING, DATA_CATALOG_MONITORING).
+        """
         return self.config['ROSIE_INFOS']['INSTALLATION']['RUNTIME']['MONITORING'][monitoring]['LIFECYCLE']
 
-    def calculate_days(self, date_status: str, target_date: str):
+    def calculate_days(
+            self,
+            date_status: str,
+            target_date: str
+            ):
+        """
+        Método para calcular a quantidade de dias entre duas datas.
+
+        Args:
+            date_status (str): Data de execução do monitoramento.
+            target_date (str): Data de referência.
+        """
         return (datetime.datetime.strptime(date_status, '%Y-%m-%d') - datetime.datetime.strptime(target_date, '%Y-%m-%d')).days
 
     def verify_lifecycle(
@@ -31,7 +65,20 @@ class RosieLifecycleManager:
             last_execution_date: str,
             created_in: int = None,
             execution_in: int = None,
-    ):
+            ):
+        """
+        Método para verificar o ciclo de vida do recurso de acordo com
+        a regra cadastrada.
+
+        Args:
+            monitoring (str): Nome do monitoramento.
+            client (boto3.client): Cliente boto3 para o monitoramento.
+            resource_name (str): Nome do recurso.
+            creation_date (str): Data de criação do recurso.
+            last_execution_date (str): Data da última execução.
+            created_in (int): Dias desde a criação do recurso.
+            execution_in (int): Dias desde a última execução.
+        """
         lifecycle = self.get_lifecycle(monitoring)
 
         if resource_name in [
@@ -42,9 +89,8 @@ class RosieLifecycleManager:
             'rosie-orquestrador',
             'ROSIE',
             'rosie-control_table',
-            ]:
+        ]:
             return 'ROSIE', 'ignore', 'IGNORE - Recurso de monitoramento da ROSIE.', None, 'ROSIE'
-
 
         if created_in is None:
             created_in = self.calculate_days(self.date_status, creation_date)
@@ -64,13 +110,25 @@ class RosieLifecycleManager:
 
         if lifecycle['TYPE_OF_MANAGEMENT'] == 'RESOURCE_NAME':
             return self.handle_resource_name_management(lifecycle, resource_name, created_in, execution_in)
-        
+
         if lifecycle['TYPE_OF_MANAGEMENT'] == 'TAG':
             return self.handle_tag_management(lifecycle, monitoring, client, resource_name, created_in, execution_in)
 
         return 'N/A', 'unknown', 'TYPE_OF_MANAGEMENT não cadastrado', None, lifecycle['TYPE_OF_MANAGEMENT']
 
-    def handle_unique_management(self, lifecycle: dict, created_in: int):
+    def handle_unique_management(
+            self,
+            lifecycle: dict,
+            created_in: int
+            ):
+        """
+        Método para gerenciar o ciclo de vida de recursos
+        independente de classificação.
+
+        Args:
+            lifecycle (dict): Configuração do ciclo de vida.
+            created_in (int): Dias desde a criação do recurso.
+        """
         if created_in > (lifecycle['RETENTION_DAYS'] - lifecycle['DELETION_ALERT_COMING_DAYS']) and created_in <= lifecycle['RETENTION_DAYS']:
             return 'deletion_coming', f'DELETE COMING - Tempo limite de retencao expirara em {abs(lifecycle["RETENTION_DAYS"] - created_in) + 1} dia(s).', lifecycle['RETENTION_DAYS'], lifecycle['TYPE_OF_MANAGEMENT']
         elif created_in > lifecycle['RETENTION_DAYS']:
@@ -78,7 +136,23 @@ class RosieLifecycleManager:
         else:
             return 'UNIQUE', 'keep', 'KEEP - Recursos dentro do tempo limite de retencao.', lifecycle['RETENTION_DAYS'], lifecycle['TYPE_OF_MANAGEMENT']
 
-    def handle_resource_name_management(self, lifecycle: dict, resource_name: str, created_in: int, execution_in: int):
+    def handle_resource_name_management(
+            self,
+            lifecycle: dict,
+            resource_name: str,
+            created_in: int,
+            execution_in: int
+            ):
+        """
+        Método para gerenciar o ciclo de vida de recursos
+        baseado no nome do recurso.
+
+        Args:
+            lifecycle (dict): Configuração do ciclo de vida.
+            resource_name (str): Nome do recurso.
+            created_in (int): Dias desde a criação do recurso.
+            execution_in (int): Dias desde a última execução.
+        """
         values = [value['VALUE'].upper() for value in lifecycle['DETAILS']['ALLOWED_VALUES']]
         type_of_management = lifecycle['TYPE_OF_MANAGEMENT']
         separator = lifecycle['DETAILS']['SEPARATOR']
@@ -90,8 +164,28 @@ class RosieLifecycleManager:
 
         retention_info = next(value for value in lifecycle['DETAILS']['ALLOWED_VALUES'] if value['VALUE'].upper() == classification)
         return self.handle_retention(retention_info, created_in, execution_in, classification, type_of_management)
-    
-    def handle_tag_management(self, lifecycle: dict, monitoring: str, client: boto3.client, resource_name: str, created_in: int, execution_in: int):
+
+    def handle_tag_management(
+            self,
+            lifecycle: dict,
+            monitoring: str,
+            client: boto3.client,
+            resource_name: str,
+            created_in: int,
+            execution_in: int
+            ):
+        """
+        Método para gerenciar o ciclo de vida de recursos
+        baseado em TAG.
+
+        Args:
+            lifecycle (dict): Configuração do ciclo de vida.
+            monitoring (str): Nome do monitoramento.
+            client (boto3.client): Cliente boto3 para o monitoramento.
+            resource_name (str): Nome do recurso.
+            created_in (int): Dias desde a criação do recurso.
+            execution_in (int): Dias desde a última execução.
+        """
         tag_name = lifecycle['DETAILS']['TAG_NAME']
         type_of_management = lifecycle['TYPE_OF_MANAGEMENT']
         values = [value['VALUE'].upper() for value in lifecycle['DETAILS']['ALLOWED_VALUES']]
@@ -107,11 +201,25 @@ class RosieLifecycleManager:
 
         if classification not in values:
             return self.handle_irregular_format(lifecycle, created_in)
-        
+
         retention_info = next(value for value in lifecycle['DETAILS']['ALLOWED_VALUES'] if value['VALUE'].upper() == classification)
         return self.handle_retention(retention_info, created_in, execution_in, classification, type_of_management)
 
-    def classify_resource(self, resource_name, separator, affix, values):
+    def classify_resource(
+            self,
+            resource_name: str, separator: str,
+            affix: str,
+            values: str
+            ):
+        """
+        Método para classificar o recurso baseado no nome.
+
+        Args:
+            resource_name (str): Nome do recurso.
+            separator (str): Separador do nome do recurso.
+            affix (str): Tipo de afixo usado para classificar.
+            values (str): Valores permitidos.
+        """
         parts = resource_name.upper().split(separator)
         if affix == 'PREFIX':
             return parts[0]
@@ -123,7 +231,19 @@ class RosieLifecycleManager:
                     return part
         return 'N/A'
 
-    def handle_irregular_format(self, lifecycle, created_in):
+    def handle_irregular_format(
+            self,
+            lifecycle: dict,
+            created_in: int
+            ):
+        """
+        Método para gerenciar o ciclo de vida de recursos
+        com formato irregular.
+
+        Args:
+            lifecycle (dict): Configuração do ciclo de vida.
+            created_in (int): Dias desde a criação do recurso.
+        """
         if lifecycle['DETAILS']['IRREGULAR_FORMAT']['QUARANTINE']:
             if created_in <= lifecycle['DETAILS']['IRREGULAR_FORMAT']['QUARANTINE_DAYS']:
                 return 'N/A', 'quarantine', f'QUARANTINE - Recurso nao possui uma classificacao valida, e sera mantido por {lifecycle["DETAILS"]["IRREGULAR_FORMAT"]["QUARANTINE_DAYS"]} dia(s) para que seja adequado.', lifecycle['DETAILS']['IRREGULAR_FORMAT']['QUARANTINE_DAYS'], lifecycle['TYPE_OF_MANAGEMENT']
@@ -132,7 +252,25 @@ class RosieLifecycleManager:
         else:
             return 'N/A', 'delete', 'DELETE - Recurso deletado por nao possuir uma classificacao valida.', None, lifecycle['TYPE_OF_MANAGEMENT']
 
-    def handle_retention(self, retention_info, created_in, execution_in, classification, type_of_management):
+    def handle_retention(
+            self,
+            retention_info: dict,
+            created_in: int,
+            execution_in: int,
+            classification: str,
+            type_of_management: str
+            ):
+        """
+        Método para calcular o ciclo de vida de recursos
+        baseado na classificação.
+
+        Args:
+            retention_info (dict): Informações de retenção.
+            created_in (int): Dias desde a criação do recurso.
+            execution_in (int): Dias desde a última execução.
+            classification (str): Classificação do recurso.
+            type_of_management (str): Tipo de gerenciamento.
+        """
         retention_days = retention_info['RETENTION_DAYS']
         deletion_alert_coming_days = retention_info['DELETION_ALERT_COMING_DAYS']
         check_idle = retention_info['CHECK_IDLE']
@@ -158,8 +296,28 @@ class RosieLifecycleManager:
                 return classification, 'keep', 'KEEP - Recurso ativo. Não há verificação de ociosidade.', None, type_of_management
 
 class RosieTableMonitor:
+    """"
+    Classe para gerenciar a tabela de monitoramento da ROSIE.
 
-    def __init__(self, config: dict, date_status: str):
+    Args:
+        config (dict): Input do arquivo de configuração.
+        date_status (str): Data de execução do monitoramento.
+
+    Attributes:
+        config (dict): Input do arquivo de configuração.
+        date_status (str): Data de execução do monitoramento.
+        ano (str): Ano da data de execução.
+        mes (str): Mês da data de execução.
+        dia (str): Dia da data de execução.
+        database (str): Nome do banco de dados.
+        table (str): Nome da tabela.
+        bucket (str): Nome do bucket.
+    """
+    def __init__(
+            self,
+            config: dict,
+            date_status: str
+            ):
         self.config = config
         self.date_status = date_status
         self.ano = self.date_status.split('-')[0]
@@ -169,7 +327,18 @@ class RosieTableMonitor:
         self.table = config['ROSIE_INFOS']['INSTALLATION']['RUNTIME']['TABLE_NAME']
         self.bucket = config['ROSIE_INFOS']['INSTALLATION']['RUNTIME']['BUCKET_NAME']
 
-    def save_result(self, verify_list: list, service: str):
+    def save_result(self,
+                    verify_list: list,
+                    service: str
+                    ):
+        """"
+        Método para salvar o resultado do monitoramento na tabela.
+
+        Args:
+            verify_list (list): Lista de dicionários com os dados
+            do monitoramento.
+            service (str): Nome do serviço monitorado.
+        """
         uuid = str(uuid4())
 
         if len(verify_list) > 0:
@@ -180,7 +349,18 @@ class RosieTableMonitor:
         else:
             print('Nenhum dado para salvar')
 
-    def create_partition(self, glue_client: boto3.client, service: str):
+    def create_partition(
+            self,
+            glue_client: boto3.client,
+            service: str
+            ):
+        """"
+        Método para criar a partição na tabela de monitoramento.
+
+        Args:
+            glue_client (boto3.client): Cliente boto3 para o Glue.
+            service (str): Nome do serviço monitorado.
+        """
         table_data = self.get_current_schema(glue_client=glue_client)
         partition_list = self.generate_partition(table_data, service)
 
@@ -193,9 +373,20 @@ class RosieTableMonitor:
             print(f"Partição criada com sucesso para a tabela {self.table} no banco de dados {self.database}") 
         except Exception as e:
             print(f"Erro ao criar partição para a tabela {self.table} no banco de dados {self.database}: {e}")
-            sys.exit(1)
 
-    def get_current_schema(self, glue_client: boto3.client) -> dict:
+    def get_current_schema(
+            self,
+            glue_client: boto3.client
+            ) -> dict:
+        """"
+        Método para buscar o schema atual da tabela.
+
+        Args:
+            glue_client (boto3.client): Cliente boto3 para o Glue.
+
+        Returns:
+            dict: Dicionário com os dados da tabela.
+        """
         try:
             response = glue_client.get_table(
                 DatabaseName=self.database,
@@ -203,8 +394,7 @@ class RosieTableMonitor:
             )
         except Exception as e:
             print(f"Erro ao buscar tabela {self.table} no banco de dados {self.database}: {e}")
-            sys.exit(1)
-        
+
         table_data = {}
         table_data['input_format'] = response['Table']['StorageDescriptor']['InputFormat']
         table_data['output_format'] = response['Table']['StorageDescriptor']['OutputFormat']
@@ -213,8 +403,22 @@ class RosieTableMonitor:
         table_data['partition_keys'] = response['Table']['PartitionKeys']
 
         return table_data
-    
-    def generate_partition(self, table_data: dict, service: str) -> list:
+
+    def generate_partition(
+            self,
+            table_data: dict,
+            service: str
+            ) -> list:
+        """"
+        Método para gerar a partição da tabela.
+
+        Args:
+            table_data (dict): Dicionário com os dados da tabela.
+            service (str): Nome do serviço monitorado.
+
+        Returns:
+            list: Lista de dicionários com os dados da partição.
+        """
         partition_list = []
         part_location = f'{table_data["location"]}/ano_dt_safra={self.ano}/mes_dt_safra={self.mes}/dia_dt_safra={self.dia}/tipo={service}'
         input_dict = {
@@ -233,12 +437,34 @@ class RosieTableMonitor:
         }
         partition_list.append(input_dict.copy())
         return partition_list
-    
+
 class RosieUtils:
+    """
+    Classe com métodos utilitários para a ROSIE.
+
+    Attributes:
+        None
+    """
     def __init__(self):
         pass
 
-    def get_size_s3(self, client: boto3.client, bucket: str, folder: str):
+    def get_size_s3(
+            self,
+            client: boto3.client,
+            bucket: str,
+            folder: str
+            ):
+        """
+        Método para buscar o tamanho de um diretório no S3 em mega bytes.
+
+        Args:
+            client (boto3.client): Cliente boto3 para o S3.
+            bucket (str): Nome do bucket.
+            folder (str): Path do diretório buscado.
+
+        Returns:
+            str: Tamanho do diretório em mega bytes.
+        """
         tmp_size_list = []
 
         paginator = client.get_paginator('list_objects_v2')
@@ -271,9 +497,24 @@ class RosieUtils:
         total_size = "%.2f" % total_size
 
         return f"{total_size}mb"
-    
-    def creation_date_s3(self, client: boto3.client, bucket: str, folder: str):
 
+    def creation_date_s3(
+            self,
+            client: boto3.client,
+            bucket: str,
+            folder: str
+            ) -> str:
+        """
+        Método para buscar a data de criação de um diretório no S3.
+
+        Args:
+            client (boto3.client): Cliente boto3 para o S3.
+            bucket (str): Nome do bucket.
+            folder (str): Path do diretório buscado.
+
+        Returns:
+            str: Data de criação do diretório.
+        """
         tmp_created_in = []
 
         response = client.list_objects_v2(
@@ -298,8 +539,24 @@ class RosieUtils:
                         tmp_created_in.append(file['LastModified'].strftime('%Y-%m-%d'))
 
         return min(tmp_created_in), max(tmp_created_in)
-    
+
 class Rosie:
+    """
+    Classe principal da ROSIE.
+
+    Args:
+        config (dict): Input do arquivo de configuração.
+
+    Attributes:
+        session (boto3.Session): Sessão boto3.
+        config (dict): Input do arquivo de configuração.
+        date_status (str): Data de execução do monitoramento.
+        lifecycle_manager (RosieLifecycleManager): Instância da classe
+        RosieLifecycleManager.
+        table_monitor (RosieTableMonitor): Instância da classe
+        RosieTableMonitor.
+        rosie_utils (RosieUtils): Instância da classe RosieUtils.
+    """
     def __init__(self, config):
         self.session = boto3.Session()
         self.config = config
@@ -308,10 +565,11 @@ class Rosie:
         self.table_monitor = RosieTableMonitor(config, self.date_status)
         self.rosie_utils = RosieUtils()
 
-    def monitor_glue(
-            self
-        ):
-        
+    def monitor_glue(self):
+        """
+        Método para monitorar os jobs do Glue.
+        """
+
         client = self.session.client('glue')
         service = 'GLUE'
         service = service.upper()
@@ -406,10 +664,11 @@ class Rosie:
         self.table_monitor.save_result(verify_list=verify, service=service)
         self.table_monitor.create_partition(glue_client=client, service=service)
 
-    def monitor_sfn(
-            self
-        ):
-        
+    def monitor_sfn(self):
+        """"
+        Método para monitorar as Step Functions.
+        """
+
         client = self.session.client('stepfunctions')
         glue_client = self.session.client('glue')
         service = 'STEP_FUNCTIONS'
@@ -448,7 +707,7 @@ class Rosie:
                         executions = client.list_executions(
                             stateMachineArn=state_machine_arn
                             )
-                    
+
                     total_executions += len(executions['executions'])
 
                     if executions['executions'] and last_execution is None:
@@ -503,15 +762,17 @@ class Rosie:
     def monitor_s3(
             self,
             buckets: list = [{'bucket': 'itau-self-wkp-us-east-1-197045787308', 'prefixes': ['', 'dados/'], 'objectNotDelete': ['dados/']}]
-        ):
-        
+            ):
+        """"
+        Método para monitorar as tabelas no buckets do S3.
+        """
         client = self.session.client('s3')
         glue_client = self.session.client('glue')
         service = 'S3'
         service = service.upper()
 
         verify = []
-        
+
         for bucket in buckets:
             for prefix in bucket['prefixes']:
                 temp_list = [{'folder': []}, {'file': []}]
@@ -526,28 +787,28 @@ class Rosie:
                             pref = item['Prefix']
                         else:
                             pref = item.get('Prefix')
-                        
+
                         if not pref in bucket['objectNotDelete'] and not pref in bucket['prefixes']:
                             if pref not in temp_list[0]['folder']:
                                 temp_list[0]['folder'].append(pref)
                             else:
                                 print(f'Pasta {pref} já foi adicionada')
                                 continue
-                
+
                 if 'Contents' in response:
                     for item in response['Contents']:
                         if len(prefix.split('/')) > 2:
                             pref = item['Key']
                         else:
                             pref = item.get('Key')
-                    
+
                         if not pref in bucket['objectNotDelete'] and not pref in bucket['prefixes']:
                             if pref not in temp_list[1]['file']:
                                 temp_list[1]['file'].append(pref)
                             else:
                                 print(f'Arquivo {pref} já foi adicionado')
                                 continue
-                
+
                 for item in temp_list:
                     typeOfObject = list(item.keys())[0]
                     objects = list(item.values())[0]
@@ -615,8 +876,11 @@ class Rosie:
             self,
             databases: list = ['workspace_db'],
             buckets: list = [{'bucket': 'itau-self-wkp-us-east-1-197045787308', 'prefixes': ['', 'dados/'], 'objectNotDelete': ['dados/']}]
-        ):
-        
+            ):
+        """"
+        Método para monitorar as tabelas no Data Catalog.
+        """
+
         s3_client = self.session.client('s3')
         glue_client = self.session.client('glue')
         service = 'DATA_CATALOG'
@@ -634,7 +898,7 @@ class Rosie:
                     response = glue_client.get_tables(
                         DatabaseName=database
                         )
-                
+
                 for table in response['TableList']:
                     path_location = table['StorageDescriptor']['Location'] if 'StorageDescriptor' in table and 'Location' in table['StorageDescriptor'] else ''
                     table_name = table['Name']
