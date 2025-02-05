@@ -1,5 +1,5 @@
 import json
-from modules import s3, glue, load, table
+from modules import s3, glue, load, table, step_funcions
 import os
 import sys
 sys.path.append(os.path.abspath(os.path.join(os.path.dirname(__file__), "../../")))
@@ -47,12 +47,29 @@ if __name__ == "__main__":
                 AWS_ACCESS_KEY_ID=AWS_ACCESS_KEY_ID,
                 AWS_SECRET_ACCESS_KEY=AWS_SECRET_ACCESS_KEY
             )
+        else:
+            glue.delete(
+                glue_job_name=f"rosie-{monitor.lower()}",
+                region=AWS_REGION,
+                AWS_ACCESS_KEY_ID=AWS_ACCESS_KEY_ID,
+                AWS_SECRET_ACCESS_KEY=AWS_SECRET_ACCESS_KEY
+            )
 
     table.create(
         bucket=BUCKET,
         table_name=TABLE,
         database_name=DATABASE,
         region=AWS_REGION,
+        AWS_ACCESS_KEY_ID=AWS_ACCESS_KEY_ID,
+        AWS_SECRET_ACCESS_KEY=AWS_SECRET_ACCESS_KEY
+    )
+
+    step_funcions.create(
+        config=config,
+        sfn_name=f"rosie-orquestrador",
+        role_arn=ROLE_ARN,
+        region=AWS_REGION,
+        AWS_ACCOUNT_ID=AWS_ACCOUNT_ID,
         AWS_ACCESS_KEY_ID=AWS_ACCESS_KEY_ID,
         AWS_SECRET_ACCESS_KEY=AWS_SECRET_ACCESS_KEY
     )

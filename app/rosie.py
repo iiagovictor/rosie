@@ -438,6 +438,35 @@ class RosieTableMonitor:
         partition_list.append(input_dict.copy())
         return partition_list
 
+class RosieCleaner:
+    """
+    Classe para limpeza de recursos monitorados pela ROSIE.
+
+    Attributes:
+        config (dict): Input do arquivo de configuração.
+        date_status (str): Data de execução do monitoramento.
+    """
+    def __init__(self,
+                 config: dict,
+                 date_status: str,
+                 boto3_session: boto3.Session,
+                 ):
+        self.session = boto3_session,
+        self.config = config,
+        self.date_status = date_status
+
+
+    def clean_glue(
+            self,
+            client: boto3.client = self.session.client('glue'),
+            service: str
+            ):
+        
+        glue_list = []
+
+        resource_list = get_list(client, service)
+
+
 class RosieUtils:
     """
     Classe com métodos utilitários para a ROSIE.

@@ -36,6 +36,7 @@ def validate_list_input(message: str, sep: str) -> list:
     while True:
         r = input(f"{message}")
         values = r.split(sep)
+        values = [value.upper() for value in values]
         if len(values) > 1 and all(value.strip() for value in values):
             return values
         print(f"{BOLD_START}{RED_START}>>> Valor inválido. Por favor, entre com pelo menos dois (2) valores separados por '{sep}'.{END}\n")
@@ -259,7 +260,7 @@ def validate_aws_account(AWS_REGION: str, ACCOUNT_ID: str, AWS_ACCESS_KEY_ID: st
     print(f"{YELLOW_START}🔍 Validando informações...{END}")
 
     try:
-        sts = boto3.client('sts', region_name=AWS_REGION, aws_access_key_id=AWS_ACCESS_KEY_ID, aws_secret_access_key=AWS_SECRET_ACCESS_KEY, aws_session_token=AWS_SESSION_TOKEN)
+        sts = boto3.client('sts', region_name=AWS_REGION, aws_access_key_id=AWS_ACCESS_KEY_ID, aws_secret_access_key=AWS_SECRET_ACCESS_KEY)
         account_id = sts.get_caller_identity().get('Account')
         if account_id != ACCOUNT_ID:
             print(f"\n{RED_START}❌ ID da conta AWS informado não corresponde ao ID da conta autenticada.{END}")

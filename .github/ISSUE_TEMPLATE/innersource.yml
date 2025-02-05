@@ -1,0 +1,45 @@
+name: "Rosie Innersource Request"
+description: "Oportunidades de melhoria para o projeto Rosie"
+title: "[Innersource] - Rosie"
+labels: ["innersource", "rosie"]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        ## Oportunidades de melhoria para o projeto Rosie
+
+        Por favor, descreva a oportunidade de melhoria que você gostaria de propor para o projeto Rosie.
+
+        **Descrição:**
+        <!-- Descreva a oportunidade de melhoria que você gostaria de propor para o projeto Rosie. -->
+
+        **Justificativa:**
+        <!-- Justifique a oportunidade de melhoria que você gostaria de propor para o projeto Rosie. -->
+
+        **Impacto:**
+        <!-- Descreva o impacto que a oportunidade de melhoria que você gostaria de propor para o projeto Rosie pode ter. -->
+
+        **Solução:**
+        <!-- Descreva a solução que você gostaria de propor para a oportunidade de melhoria que você gostaria de propor para o projeto Rosie. -->
+
+        **Referências:**
+        <!-- Adicione links, imagens, ou qualquer outra referência que possa ajudar a entender a oportunidade de melhoria que você gostaria de propor para o projeto Rosie. -->
+
+        **Outros comentários:**
+        <!-- Adicione qualquer outro comentário que você achar relevante sobre a oportunidade de melhoria que você gostaria de propor para o projeto Rosie. -->
+
+  - type: input
+    id: issue_number
+    attributes:
+      label: "Número da Issue"
+      description: "Por favor, adicione o número da issue relacionada a oportunidade de melhoria que você gostaria de propor para o projeto Rosie."
+      placeholder: "Ex: #123"
+      required: true
+
+  - type: input
+    id: pull_request
+    attributes:
+      label: "Pull Request"
+      description: "Por favor, adicione o link do Pull Request relacionado a oportunidade de melhoria que você gostaria de propor para o projeto Rosie."
+      placeholder: "Ex:"
+      required: true

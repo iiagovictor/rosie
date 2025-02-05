@@ -27,7 +27,7 @@ def create(
         response = None
 
     if response:
-        print(f"{BLUE_START}{BOLD_START}🟡 Tabela de controle já existe na conta!{END}")
+        print(f"{BLUE_START}{BOLD_START}🔵 Tabela de controle já existe na conta!{END}")
         print(f"{YELLOW_START}{BOLD_START}⏳ Atualizando tabela de controle ...{END}")
         try:
             glue_client.update_table(

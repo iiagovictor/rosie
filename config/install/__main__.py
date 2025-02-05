@@ -133,11 +133,12 @@ class RosieInstaller:
                         "AWS_ACCOUNT": self.account_info,
                         "LEGACY": legacy,
                         "RUNTIME": {
-                            "ROLE_ARN": "rosie",
+                            "ROLE_ARN": f"arn:aws:iam::{self.account_info['AWS_ACCOUNT_ID']}:role/rosie",
                             "DATABASE_NAME": "workspace_db",
-                            "TABLE_NAME": "rosie_control",
+                            "TABLE_NAME": "rosie-control_table",
                             "CRON_EXPRESSION": self.cron_expression,
                             "MONITORING": self.monitoring,
+                            "BUCKET_NAME": f"itau-self-wkp-{self.account_info['AWS_REGION']}-{self.account_info['AWS_ACCOUNT_ID']}",
                         }
                     }
                 }
