@@ -43,6 +43,9 @@ class RosieInstaller:
         self.monitoring = {}
         self.type_of_installation = None
         self.account_info = {}
+        self.enable_backup = False
+        self.backup_retention = None
+        self.enable_rosie_cleaner = False
 
     def install(self):
         self.clear()
@@ -55,6 +58,9 @@ class RosieInstaller:
         self.get_aws_account_info()
         self.select_installation_tool()
         self.configure_monitoring_modules()
+        self.configure_rosie_cleaner()
+        if self.enable_rosie_cleaner:
+            self.configure_backup()
         legacy = self.check_legacy(self.date)
         self.cron_expression = self.get_trigger_info()
         self.generate_config_file(legacy)
@@ -123,6 +129,23 @@ class RosieInstaller:
                 input(f"\nPressione {BLUE_START}ENTER{END} para continuar...")
                 self.clear()
     
+    def configure_backup(self):
+
+        self.enable_backup = validate_bool_input(
+            f"\nDeseja habilitar o backup dos recursos deletados pela ROSIE? {YELLOW_START}(y/n){END} "
+            )
+
+        if self.enable_backup:
+            self.backup_retention = validate_number_input(
+                f"\nQual o tempo de BACKUP {YELLOW_START}(em dias){END} que deseja configurar? ", 6, 'MAIOR'
+                )
+
+    def configure_rosie_cleaner(self):
+
+        self.enable_rosie_cleaner = validate_bool_input(
+            f"Deseja habilitar o ROSIE CLEANER para limpeza dos recursos monitorados pela ROSIE? {YELLOW_START}(y/n){END} "
+            )
+
     def generate_config_file(self, legacy):
         config_path = os.path.join(os.path.dirname(__file__), "../../app/config.json")
         with open(config_path, "w") as file:
@@ -136,14 +159,23 @@ class RosieInstaller:
                             "ROLE_ARN": f"arn:aws:iam::{self.account_info['AWS_ACCOUNT_ID']}:role/rosie",
                             "DATABASE_NAME": "workspace_db",
                             "TABLE_NAME": "rosie-control_table",
+                            "TABLE_BACKUP": "rosie-control_table_backup",
                             "CRON_EXPRESSION": self.cron_expression,
-                            "MONITORING": self.monitoring,
                             "BUCKET_NAME": f"itau-self-wkp-{self.account_info['AWS_REGION']}-{self.account_info['AWS_ACCOUNT_ID']}",
+                            "ENABLE_ROSIE_CLEANER": self.enable_rosie_cleaner,
+                            "BACKUP": {
+                                "ENABLE_BACKUP": self.enable_backup,
+                                "BACKUP_RETENTION": self.backup_retention,
+                            },
+                            "MONITORING": self.monitoring,
                         }
                     }
                 }
             }
             json.dump(data, file, indent=4)
+        self.clear()
+        print(f"\n{GREEN_START}{BOLD_START}✅ Configuração gerada com sucesso!{END}")
+        print(f"\nA instalação da ROSIE começará em instantes, aguarde...\n")
 
     def clear(self):
         clear()
