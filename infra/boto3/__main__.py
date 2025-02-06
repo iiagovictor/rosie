@@ -18,11 +18,10 @@ if __name__ == "__main__":
     AWS_SECRET_ACCESS_KEY = config['ROSIE_INFOS']['INSTALLATION']['AWS_ACCOUNT']['AWS_SECRET_ACCESS_KEY']
     DATABASE = config['ROSIE_INFOS']['INSTALLATION']['RUNTIME']['DATABASE_NAME']
     TABLE = config['ROSIE_INFOS']['INSTALLATION']['RUNTIME']['TABLE_NAME']
-    TABLE_BACKUP = config['ROSIE_INFOS']['INSTALLATION']['RUNTIME']['TABLE_BACKUP']
     CRON_EXPRESSION = config['ROSIE_INFOS']['INSTALLATION']['RUNTIME']['CRON_EXPRESSION']
     ROLE_ARN = config['ROSIE_INFOS']['INSTALLATION']['RUNTIME']['ROLE_ARN']
     MONITORING = config['ROSIE_INFOS']['INSTALLATION']['RUNTIME']['MONITORING']
-    BUCKET = f"itau-self-wkp-{AWS_REGION}-{AWS_ACCOUNT_ID}"
+    BUCKET = config['ROSIE_INFOS']['INSTALLATION']['RUNTIME']['BUCKET_NAME']
     
     # s3.create_bucket(
     #     aws_account_id=AWS_ACCOUNT_ID,
@@ -76,15 +75,6 @@ if __name__ == "__main__":
     table.create(
         bucket=BUCKET,
         table_name=TABLE,
-        database_name=DATABASE,
-        region=AWS_REGION,
-        AWS_ACCESS_KEY_ID=AWS_ACCESS_KEY_ID,
-        AWS_SECRET_ACCESS_KEY=AWS_SECRET_ACCESS_KEY
-    )
-
-    table.create(
-        bucket=BUCKET,
-        table_name=TABLE_BACKUP,
         database_name=DATABASE,
         region=AWS_REGION,
         AWS_ACCESS_KEY_ID=AWS_ACCESS_KEY_ID,

@@ -5,6 +5,19 @@ from uuid import uuid4
 import sys
 import time
 import json
+import pickle
+
+rosie_resources = [
+            '',
+            'rosie-step_functions_monitoring',
+            'rosie-glue_monitoring',
+            'rosie-data_catalog_monitoring',
+            'rosie-s3_monitoring',
+            'rosie-orquestrador',
+            'ROSIE',
+            'rosie-control_table',
+            'rosie-cleaner_monitoring'
+            ]
 
 class RosieLifecycleManager:
     
@@ -44,6 +57,12 @@ class RosieLifecycleManager:
                     return f'delete (legacy)', f'Recurso nao possui uma classificacao valida. | Recurso dentro do prazo de adequacao de {adequacy_term} dia(s).'
                 
                 return f'{status} (legacy)', f'{reason} | Recurso dentro do prazo de adequacao de {adequacy_term} dia(s).'
+            
+            else:
+                return status, reason
+        
+        else:
+            return status, reason
 
     def verify_lifecycle(
             self,
@@ -57,16 +76,7 @@ class RosieLifecycleManager:
     ):
         lifecycle = self.get_lifecycle(monitoring)
 
-        if resource_name in [
-            'rosie-step_functions_monitoring',
-            'rosie-glue_monitoring',
-            'rosie-data_catalog_monitoring',
-            'rosie-s3_monitoring',
-            'rosie-orquestrador',
-            'ROSIE',
-            'rosie-control_table',
-            'rosie-control_table_backup'
-            ]:
+        if resource_name in rosie_resources:
             return 'ROSIE', 'ignore', 'IGNORE - Recurso de monitoramento da ROSIE.', None, 'ROSIE'
 
 
@@ -181,6 +191,7 @@ class RosieTableMonitor:
     def __init__(self, config: dict, date_status: str):
         self.config = config
         self.date_status = date_status
+        self.session = boto3.Session()
         self.ano = self.date_status.split('-')[0]
         self.mes = self.date_status.split('-')[1]
         self.dia = self.date_status.split('-')[2]
@@ -199,12 +210,12 @@ class RosieTableMonitor:
         else:
             print('Nenhum dado para salvar')
 
-    def create_partition(self, glue_client: boto3.client, service: str):
-        table_data = self.get_current_schema(glue_client=glue_client)
+    def create_partition(self, service: str):
+        table_data = self.get_current_schema()
         partition_list = self.generate_partition(table_data, service)
 
         try:
-            response = glue_client.batch_create_partition(
+            response = self.session.client('glue').batch_create_partition(
                 DatabaseName=self.database,
                 TableName=self.table,
                 PartitionInputList=partition_list
@@ -214,9 +225,9 @@ class RosieTableMonitor:
             print(f"Erro ao criar partição para a tabela {self.table} no banco de dados {self.database}: {e}")
             sys.exit(1)
 
-    def get_current_schema(self, glue_client: boto3.client) -> dict:
+    def get_current_schema(self) -> dict:
         try:
-            response = glue_client.get_table(
+            response = self.session.client('glue').get_table(
                 DatabaseName=self.database,
                 Name=self.table
             )
@@ -425,7 +436,7 @@ class Rosie:
                 break
 
         self.table_monitor.save_result(verify_list=verify, service=service)
-        self.table_monitor.create_partition(glue_client=client, service=service)
+        self.table_monitor.create_partition(service=service)
 
     def monitor_sfn(
             self
@@ -521,7 +532,7 @@ class Rosie:
                 break
 
         self.table_monitor.save_result(verify_list=verify, service=service)
-        self.table_monitor.create_partition(glue_client=glue_client, service=service)
+        self.table_monitor.create_partition(service=service)
 
     def monitor_s3(
             self,
@@ -529,7 +540,6 @@ class Rosie:
         ):
         
         client = self.session.client('s3')
-        glue_client = self.session.client('glue')
         service = 'S3'
         service = service.upper()
 
@@ -602,9 +612,8 @@ class Rosie:
                                 last_execution_date=creation_date
                             )
 
-                            status, reason = self.lifecycle_manager.verify_legacy(status, reason)
                         elif sub_name == 'ROSIE':
-                            resource_class = 'N/A'
+                            resource_class = 'ROSIE'
                             status = 'ignore'
                             reason = 'IGNORE - Recurso de monitoramento da ROSIE.'
                             retention_days = None
@@ -616,7 +625,7 @@ class Rosie:
                             retention_days = None
                             type_of_management = self.config['ROSIE_INFOS']['INSTALLATION']['RUNTIME']['MONITORING'][f'{service}_MONITORING']['LIFECYCLE']['TYPE_OF_MANAGEMENT']
 
-                            status, reason = self.lifecycle_manager.verify_legacy(status, reason)
+                        status, reason = self.lifecycle_manager.verify_legacy(status, reason)
 
                         verify_item = {
                             'nome_recurso': f's3://{bucket["bucket"]}/{obj}',
@@ -636,7 +645,7 @@ class Rosie:
                         verify.append(verify_item)
 
         self.table_monitor.save_result(verify_list=verify, service=service)
-        self.table_monitor.create_partition(glue_client=glue_client, service=service)
+        self.table_monitor.create_partition(service=service)
 
     def monitor_data_catalog(
             self,
@@ -709,7 +718,7 @@ class Rosie:
                     break
 
         self.table_monitor.save_result(verify_list=verify, service=service)
-        self.table_monitor.create_partition(glue_client=glue_client, service=service)
+        self.table_monitor.create_partition(service=service)
 
 class RosieCleaner:
     """
@@ -722,9 +731,9 @@ class RosieCleaner:
                  config: dict,
                  ):
         
-        self.session = boto3.Session(),
+        self.session = boto3.Session()
         self.date_status = str(datetime.datetime.now().strftime('%Y-%m-%d'))
-        self.config = config,
+        self.config = config
         self.table_monitor = RosieTableMonitor(config, self.date_status)
 
     def get_list(
@@ -809,33 +818,19 @@ class RosieCleaner:
             services (str): Nomes dos recurso.
         """
 
-        list_not_delete = [
-            'rosie-step_functions_monitoring',
-            'rosie-glue_monitoring',
-            'rosie-data_catalog_monitoring',
-            'rosie-s3_monitoring',
-            'rosie-orquestrador',
-            'ROSIE',
-            'rosie-control_table',
-            'rosie-control_table_backup'
-            ]
-
         glue_list = []
         sfn_list = []
         s3_list = []
         data_catalog_list = []
         unmapped_list = []
-
         BUCKET = self.config['ROSIE_INFOS']['INSTALLATION']['RUNTIME']['BUCKET_NAME']
         AWS_REGION = self.config['ROSIE_INFOS']['INSTALLATION']['AWS_ACCOUNT']['AWS_REGION']
         AWS_ACCOUNT_ID = self.config['ROSIE_INFOS']['INSTALLATION']['AWS_ACCOUNT']['AWS_ACCOUNT_ID']
 
-        bucketr = self.session.client('s3').Bucket(self.config['ROSIE_INFOS']['INSTALLATION']['RUNTIME']['BUCKET_NAME'])
+        bucketr = self.session.resource('s3').Bucket(BUCKET)
 
-        resource_list = self.get_list(services=services, date_status=self.date_status)
+        resource_list = self.get_list(services=services)
         resource_list = resource_list.drop(columns=['ano_dt_safra', 'mes_dt_safra', 'dia_dt_safra', 'tipo'])
-        resource_list.insert(3, 'dt_delete', None)
-        resource_list.insert(4, 'dias_delete', None)
 
         print("Total de recursos para deletar:", len(resource_list))
 
@@ -843,11 +838,12 @@ class RosieCleaner:
             resource = row['nome_recurso']
             
             if row['servico'] == 'GLUE':
-                if resource in list_not_delete:
+                print(f"\nDeletando recurso GLUE")
+                if resource in rosie_resources:
                     continue
                 else:
                     try:
-                        print(f"Realizando backup dos metadados do recurso {resource}")
+                        print(f"Realizando backup dos metadados do recurso '{resource}'")
                         response = self.session.client('glue').get_job(
                             JobName=resource
                         )
@@ -859,32 +855,28 @@ class RosieCleaner:
 
                         self.session.client('s3').put_object(
                             Bucket=f'{BUCKET}',
-                            Key=f"ROSIE/backup/GLUE/metadata/{metadata['Name']}.json",
-                            Body=json.dumps(metadata)
+                            Key=f"ROSIE/backup/GLUE/metadata/{metadata['Name']}.pkl",
+                            Body=pickle.dumps(metadata)
                         )
-                        print(f"Backup dos metadados do recurso {resource} realizado com sucesso")
+                        print(f"Backup dos metadados do recurso '{resource}' realizado com sucesso")
 
-                        print(f"Deletando recurso {resource}")
+                        print(f"Deletando recurso '{resource}'")
                         self.session.client('glue').delete_job(
                             JobName=resource
                         )
-                        print(f"Recurso {resource} deletado com sucesso")
+                        print(f"Recurso '{resource}' deletado com sucesso")
                         glue_list.append(resource)
 
                         resource_list.at[index, 'dt_delete'] = self.date_status
                         resource_list.at[index, 'status'] = 'deleted - backup'
-                        resource_list.at[index, 'dias_delete'] = 0
 
                     except Exception as e:
-                        print(f"Erro ao fazer backup dos metadados do recurso e deletar o recurso {resource}: {e}")
+                        print(f"Erro ao fazer backup dos metadados do recurso e deletar o recurso '{resource}': {e}")
 
                         resource_list.at[index, 'status'] = 'error'
                                             
                     try:
-                        print(f"Realizando backup do script {resource}")
-                        response = self.session.client('glue').get_job(
-                            JobName=resource
-                        )
+                        print(f"Realizando backup do script '{resource}'")
                         script_location = response['Job']['Command']['ScriptLocation']
                         self.session.client('s3').copy_object(
                             Bucket=f'{BUCKET}',
@@ -894,24 +886,25 @@ class RosieCleaner:
                             },
                             Key=f"ROSIE/backup/GLUE/scripts/{response['Job']['Name']}.{script_location.split('.')[-1]}"
                         )
-                        print(f"Backup do script {resource} realizado com sucesso")
+                        print(f"Backup do script '{resource}' realizado com sucesso")
 
-                        print(f"Deletando script {resource}")
+                        print(f"Deletando script '{resource}'")
                         self.session.client('s3').delete_object(
                             Bucket=script_location.split('/')[2],
                             Key='/'.join(script_location.split('/')[3:])
                         )
-                        print(f"Script {resource} deletado com sucesso")
+                        print(f"Script '{resource}' deletado com sucesso")
 
                     except Exception as e:
-                        print(f"Erro ao fazer backup do script e deletar o script {resource}: {e}")
+                        print(f"Erro ao fazer backup do script e deletar o script '{resource}': {e}")
 
             elif row['servico'] == 'STEP_FUNCTIONS':
-                if resource in list_not_delete:
+                print(f"\nDeletando recurso STEP FUNCTIONS")
+                if resource in rosie_resources:
                     continue
                 else:
                     try:
-                        print(f"Realizando backup dos metadados do recurso {resource}")
+                        print(f"Realizando backup dos metadados do recurso '{resource}'")
                         response = self.session.client('stepfunctions').describe_state_machine(
                             stateMachineArn=f"arn:aws:states:{AWS_REGION}:{AWS_ACCOUNT_ID}:stateMachine:{resource}"
                         )
@@ -920,73 +913,83 @@ class RosieCleaner:
                         response.pop('definition', None)
                         self.session.client('s3').put_object(
                             Bucket=f'{BUCKET}',
-                            Key=f"ROSIE/backup/STEP_FUNCTIONS/metadata/{resource}.json",
-                            Body=json.dumps(response)
+                            Key=f"ROSIE/backup/STEP_FUNCTIONS/metadata/{resource}.pkl",
+                            Body=pickle.dumps(response)
                         )
                         self.session.client('s3').put_object(
                             Bucket=f'{BUCKET}',
                             Key=f"ROSIE/backup/STEP_FUNCTIONS/definition/{resource}.json",
                             Body=json.dumps(definition)
                         )
-                        print(f"Backup dos metadados do recurso {resource} realizado com sucesso")
+                        print(f"Backup dos metadados do recurso '{resource}' realizado com sucesso")
 
-                        print(f"Deletando recurso {resource}")
+                        print(f"Deletando recurso '{resource}'")
                         self.session.client('stepfunctions').delete_state_machine(
                             stateMachineArn=f"arn:aws:states:{AWS_REGION}:{AWS_ACCOUNT_ID}:stateMachine:{resource}"
                         )
-                        print(f"Recurso {resource} deletado com sucesso")
+                        print(f"Recurso '{resource}' deletado com sucesso")
                         sfn_list.append(resource)
 
                         resource_list.at[index, 'dt_delete'] = self.date_status
                         resource_list.at[index, 'status'] = 'deleted - backup'
-                        resource_list.at[index, 'dias_delete'] = 0
                     except Exception as e:
-                        print(f"Erro ao realizar backup dos metadados e deletar o recurso {resource}: {e}")
+                        print(f"Erro ao realizar backup dos metadados e deletar o recurso '{resource}': {e}")
 
                         resource_list.at[index, 'status'] = 'error'
 
             elif row['servico'] == 'S3':
-                resource = row['nome_recurso'].replace(f's3://{BUCKET}/', '')
-                if resource in list_not_delete:
+                print(f"\nDeletando recurso S3")
+                if resource in rosie_resources:
                     continue
                 else:
                     try:
-                        print(f"Realizando backup dos dados do recurso {resource}")
-                        self.session.client('s3').copy_object(
-                            Bucket=f'{BUCKET}',
-                            CopySource={
-                                'Bucket': resource.split('/')[2],
-                                'Key': '/'.join(script_location.split('/')[3:])
-                            },
-                            Key=f"ROSIE/backup/S3/{'/'.join(script_location.split('/')[3:])}"
-                        )
-                        print(f"Backup dos dados do recurso {resource} realizado com sucesso")
+                        print(f"Realizando backup dos dados do recurso '{resource}'")
+                        bucket_name = resource.split('/')[2]
+                        prefix = '/'.join(resource.split('/')[3:])
+                        
+                        bucket = self.session.resource('s3').Bucket(bucket_name)
+                        
+                        objects = bucket.objects.filter(Prefix=prefix)
+                        
+                        for obj in objects:
+                            copy_source = {
+                                'Bucket': bucket_name,
+                                'Key': obj.key
+                            }
+                            destination_key = f"ROSIE/backup/S3/{obj.key}"
+                            self.session.client('s3').copy_object(
+                                Bucket=BUCKET,
+                                CopySource=copy_source,
+                                Key=destination_key
+                            )
+                        
+                        print(f"Backup dos dados do recurso '{resource}' realizado com sucesso")
 
-                        print(f"Deletando recurso {resource}")
-                        bucketr.objects.filter(Prefix=resource).delete()
-                        print(f"Recurso {resource} deletado com sucesso")
+                        print(f"Deletando recurso '{resource}'")
+                        bucketr.objects.filter(Prefix='/'.join(resource.split('/')[3:])).delete()
+                        print(f"Recurso '{resource}' deletado com sucesso")
                         s3_list.append(f's3://{BUCKET}/{resource}')
 
                         resource_list.at[index, 'dt_delete'] = self.date_status
                         resource_list.at[index, 'status'] = 'deleted - backup'
-                        resource_list.at[index, 'dias_delete'] = 0
                     except Exception as e:
-                        print(f"Erro ao realizar backup dos dados e deletar o recurso {resource}: {e}")
+                        print(f"Erro ao realizar backup dos dados e deletar o recurso '{resource}': {e}")
 
                         resource_list.at[index, 'status'] = 'error'
 
             elif row['servico'] == 'DATA_CATALOG':
+                print(f"\nDeletando recurso DATA CATALOG")
 
                 database = row['database']
-                table = row['nome_recurso']
+                table = row['tabela']
                 bucket = row['nome_recurso'].split('/')[2]
                 s3_path = '/'.join(row['nome_recurso'].split('/')[3:])
 
-                if table in list_not_delete:
+                if table in rosie_resources:
                     continue
                 else:
                     try:
-                        print(f"Realizando backup dos metadados do recurso {database}.{table}")
+                        print(f"Realizando backup dos metadados do recurso '{database}.{table}'")
                         response = self.session.client('glue').get_table(
                             DatabaseName=database,
                             Name=table
@@ -994,34 +997,53 @@ class RosieCleaner:
                         response.pop('ResponseMetadata', None)
                         self.session.client('s3').put_object(
                             Bucket=f'{BUCKET}',
-                            Key=f"ROSIE/backup/DATA_CATALOG/metadata/{database}.{table}.json",
-                            Body=json.dumps(response)
+                            Key=f"ROSIE/backup/DATA_CATALOG/metadata/{database}.{table}.pkl",
+                            Body=pickle.dumps(response)
                         )
-                        print(f"Backup dos metadados do recurso {database}.{table} realizado com sucesso")
+                        print(f"Backup dos metadados do recurso '{database}.{table}' realizado com sucesso")
 
-                        print(f"Deletando recurso {database}.{table}")
+                        print(f"Deletando recurso '{database}.{table}'")
                         self.session.client('glue').delete_table(
                             DatabaseName=database,
                             Name=table
                         )
-                        print(f"Recurso {database}.{table} deletado com sucesso")
-                        print(f"Deletando dados no {s3_path}, respectivo a tabela lógica {database}.{table}")
-                        self.session.client('s3').Bucket(bucket).objects.filter(Prefix=s3_path).delete()
-                        print(f"Dados deletados com sucesso!")
-                        data_catalog_list.append(table)
+                        print(f"Recurso '{database}.{table}' deletado com sucesso")
 
                         resource_list.at[index, 'dt_delete'] = self.date_status
                         resource_list.at[index, 'status'] = 'deleted - backup'
-                        resource_list.at[index, 'dias_delete'] = 0
                     except Exception as e:
-                        print(f"Erro ao realizar backup dos metadados e deletar o recurso {database}.{table}: {e}")
-
+                        print(f"Erro ao realizar backup dos metadados e deletar o recurso '{database}.{table}': {e}")
                         resource_list.at[index, 'status'] = 'error'
+                    
+                    try:
+                        print(f"Realizando backup dos dados no {s3_path}, respectivo a tabela lógica '{database}.{table}'")
+                        if s3_path not in ['', 'dados/']:
+                            print(f"Deletando dados no {s3_path}, respectivo a tabela lógica '{database}.{table}'")
+                            
+                            objects = self.session.resource('s3').Bucket(bucket).objects.filter(Prefix=s3_path)
+
+                            for obj in objects:
+                                copy_source = {
+                                    'Bucket': bucket,
+                                    'Key': obj.key
+                                }
+                                destination_key = f"ROSIE/backup/DATA_CATALOG/data/{obj.key}"
+                                self.session.client('s3').copy_object(
+                                    Bucket=BUCKET,
+                                    CopySource=copy_source,
+                                    Key=destination_key
+                                )
+                            self.session.resource('s3').Bucket(bucket).objects.filter(Prefix=s3_path).delete()
+                            print(f"Dados deletados com sucesso!")
+                    except Exception as e:
+                        print(f"Erro ao deletar os dados no {s3_path}, respectivo a tabela lógica '{database}.{table}': {e}")                    
+
+                    data_catalog_list.append(f'{database}.{table}')
             else:
                 resource = row['nome_recurso']
                 unmapped_list.append(row['nome_recurso'])
 
-        print("Lista de recursos GLUE deletados: ", glue_list)
+        print("\nLista de recursos GLUE deletados: ", glue_list)
         print("Total de recursos GLUE deletados: ", len(glue_list))
         print("Lista de recursos STEP FUNCTIONS deletados: ", sfn_list)
         print("Total de recursos STEP FUNCTIONS deletados: ", len(sfn_list))
@@ -1032,5 +1054,32 @@ class RosieCleaner:
         print("Lista de recursos não mapeados: ", unmapped_list)
         print("Total de recursos não mapeados: ", len(unmapped_list))
 
-        self.table_monitor.save_result(verify_list=resource_list.to_dict('records'), service='rosie-cleaner')
-        self.table_monitor.create_partition(service='rosie-cleaner')
+        import pandas as pd
+        
+        # Supondo que resource_list seja um DataFrame do pandas
+        resource_list = resource_list.astype(str)
+        resource_list = resource_list.applymap(lambda x: None if x in ['None', 'nan'] else x)
+        
+        def safe_int_conversion(x):
+            if x is None:
+                return None
+            return int(float(x))
+        
+        # Aplicando a conversão segura para inteiros
+        resource_list['dias_criacao'] = resource_list['dias_criacao'].apply(lambda x: x.split('.')[0] if x is not None else x)
+        resource_list['dias_criacao'] = resource_list['dias_criacao'].apply(safe_int_conversion)
+        resource_list['dias_ultima_atualizacao'] = resource_list['dias_ultima_atualizacao'].apply(lambda x: x.split('.')[0] if x is not None else x)
+        resource_list['dias_ultima_atualizacao'] = resource_list['dias_ultima_atualizacao'].apply(safe_int_conversion)
+        resource_list['qtd_execucoes'] = resource_list['qtd_execucoes'].apply(lambda x: x.split('.')[0] if x is not None else x)
+        resource_list['qtd_execucoes'] = resource_list['qtd_execucoes'].apply(safe_int_conversion)
+        
+        # Convertendo as colunas para inteiros
+        resource_list['dias_criacao'] = resource_list['dias_criacao'].astype('Int64')
+        resource_list['dias_ultima_atualizacao'] = resource_list['dias_ultima_atualizacao'].astype('Int64')
+        resource_list['qtd_execucoes'] = resource_list['qtd_execucoes'].astype('Int64')
+        
+        # Salvando o DataFrame no formato Parquet
+        resource_list.to_parquet('s3://itau-self-wkp-us-east-1-197045787308/ROSIE/rosie-control_table/ano_dt_safra=2025/mes_dt_safra=02/dia_dt_safra=06/tipo=CLEANER/2025-02-06-e48153b0-0431-4f85-afc9-b81b7d724c40.parquet')
+
+        self.table_monitor.save_result(verify_list=resource_list.to_dict('records'), service='CLEANER')
+        self.table_monitor.create_partition(service='CLEANER')
