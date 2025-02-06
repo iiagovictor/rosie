@@ -32,6 +32,10 @@
         "Type": "string"
     },
     {
+        "Name": "dt_delete",
+        "Type": "string"
+    },
+    {
         "Name": "lifecycle",
         "Type": "int"
     },
