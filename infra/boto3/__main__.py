@@ -18,6 +18,7 @@ if __name__ == "__main__":
     AWS_SECRET_ACCESS_KEY = config['ROSIE_INFOS']['INSTALLATION']['AWS_ACCOUNT']['AWS_SECRET_ACCESS_KEY']
     DATABASE = config['ROSIE_INFOS']['INSTALLATION']['RUNTIME']['DATABASE_NAME']
     TABLE = config['ROSIE_INFOS']['INSTALLATION']['RUNTIME']['TABLE_NAME']
+    TABLE_BACKUP = config['ROSIE_INFOS']['INSTALLATION']['RUNTIME']['TABLE_BACKUP']
     CRON_EXPRESSION = config['ROSIE_INFOS']['INSTALLATION']['RUNTIME']['CRON_EXPRESSION']
     ROLE_ARN = config['ROSIE_INFOS']['INSTALLATION']['RUNTIME']['ROLE_ARN']
     MONITORING = config['ROSIE_INFOS']['INSTALLATION']['RUNTIME']['MONITORING']
@@ -54,10 +55,36 @@ if __name__ == "__main__":
                 AWS_ACCESS_KEY_ID=AWS_ACCESS_KEY_ID,
                 AWS_SECRET_ACCESS_KEY=AWS_SECRET_ACCESS_KEY
             )
+    
+    if config['ROSIE_INFOS']['INSTALLATION']['RUNTIME']['ENABLE_ROSIE_CLEANER']:
+        glue.create(
+            glue_job_name="rosie-cleaner_monitoring",
+            role_arn=ROLE_ARN,
+            script_location=f"s3://{BUCKET}/ROSIE/scripts/rosie_cleaner_monitoring.py",
+            region=AWS_REGION,
+            AWS_ACCESS_KEY_ID=AWS_ACCESS_KEY_ID,
+            AWS_SECRET_ACCESS_KEY=AWS_SECRET_ACCESS_KEY
+        )
+    else:
+        glue.delete(
+            glue_job_name="rosie-cleaner_monitoring",
+            region=AWS_REGION,
+            AWS_ACCESS_KEY_ID=AWS_ACCESS_KEY_ID,
+            AWS_SECRET_ACCESS_KEY=AWS_SECRET_ACCESS_KEY
+        )
 
     table.create(
         bucket=BUCKET,
         table_name=TABLE,
+        database_name=DATABASE,
+        region=AWS_REGION,
+        AWS_ACCESS_KEY_ID=AWS_ACCESS_KEY_ID,
+        AWS_SECRET_ACCESS_KEY=AWS_SECRET_ACCESS_KEY
+    )
+
+    table.create(
+        bucket=BUCKET,
+        table_name=TABLE_BACKUP,
         database_name=DATABASE,
         region=AWS_REGION,
         AWS_ACCESS_KEY_ID=AWS_ACCESS_KEY_ID,
@@ -73,3 +100,5 @@ if __name__ == "__main__":
         AWS_ACCESS_KEY_ID=AWS_ACCESS_KEY_ID,
         AWS_SECRET_ACCESS_KEY=AWS_SECRET_ACCESS_KEY
     )
+
+    print(f"\n\n{GREEN_START}{BOLD_START}✅ Instalação da ROSIE finalizada com sucesso!{END}")

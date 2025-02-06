@@ -3,58 +3,47 @@ import boto3
 import pandas as pd
 from uuid import uuid4
 import sys
+import time
+import json
 
 class RosieLifecycleManager:
-    """
-    Classe para gerenciar o ciclo de vida dos recursos
-    monitorados pela ROSIE.
-
-    Args:
-        config (dict): Input do arquivo de configuração.
-        date_status (str): Data de execução do monitoramento.
-
-    Attributes:
-        config (dict): Input do arquivo de configuração.
-        date_status (str): Data de execução do monitoramento.
-        region (str): Região da AWS.
-        account_id (str): ID da conta da AWS.
-    """
+    
     def __init__(self,
-                 config: dict,
+                 config: dict, 
                  date_status: str,
                  ):
+        
         self.config = config
         self.date_status = date_status
         self.region = config['ROSIE_INFOS']['INSTALLATION']['AWS_ACCOUNT']['AWS_REGION']
         self.account_id = config['ROSIE_INFOS']['INSTALLATION']['AWS_ACCOUNT']['AWS_ACCOUNT_ID']
 
-    def get_lifecycle(
-            self,
-            monitoring: str
-            ):
-        """
-        Método para buscar o ciclo de vida do recurso de acordo com o
-        monitoramento.
-
-        Args:
-            monitoring (str): Nome do monitoramento (GLUE_MONITORING,
-            S3_MONITORING, STEP_FUNCTIONS_MONITORING, DATA_CATALOG_MONITORING).
-        """
+    def get_lifecycle(self, monitoring: str):
         return self.config['ROSIE_INFOS']['INSTALLATION']['RUNTIME']['MONITORING'][monitoring]['LIFECYCLE']
 
-    def calculate_days(
-            self,
-            date_status: str,
-            target_date: str
-            ):
-        """
-        Método para calcular a quantidade de dias entre duas datas.
-
-        Args:
-            date_status (str): Data de execução do monitoramento.
-            target_date (str): Data de referência.
-        """
+    def calculate_days(self, date_status: str, target_date: str):
         return (datetime.datetime.strptime(date_status, '%Y-%m-%d') - datetime.datetime.strptime(target_date, '%Y-%m-%d')).days
+    
+    def verify_legacy(
+            self,
+            status: str,
+            reason: str,
+
+    ):
+        if self.config['ROSIE_INFOS']['INSTALLATION']['LEGACY']['ENABLED']:
+            adequacy_term = self.config['ROSIE_INFOS']['INSTALLATION']['LEGACY']['ADEQUACY_TERM']
+            date_start = self.config['ROSIE_INFOS']['INSTALLATION']['LEGACY']['DATE_START']
+            start_in = self.calculate_days(self.date_status, date_start)
+            
+            if status == 'ignore':
+                return status, reason
+            
+            if start_in <= adequacy_term:
+                
+                if status == 'quarantine':
+                    return f'delete (legacy)', f'Recurso nao possui uma classificacao valida. | Recurso dentro do prazo de adequacao de {adequacy_term} dia(s).'
+                
+                return f'{status} (legacy)', f'{reason} | Recurso dentro do prazo de adequacao de {adequacy_term} dia(s).'
 
     def verify_lifecycle(
             self,
@@ -65,20 +54,7 @@ class RosieLifecycleManager:
             last_execution_date: str,
             created_in: int = None,
             execution_in: int = None,
-            ):
-        """
-        Método para verificar o ciclo de vida do recurso de acordo com
-        a regra cadastrada.
-
-        Args:
-            monitoring (str): Nome do monitoramento.
-            client (boto3.client): Cliente boto3 para o monitoramento.
-            resource_name (str): Nome do recurso.
-            creation_date (str): Data de criação do recurso.
-            last_execution_date (str): Data da última execução.
-            created_in (int): Dias desde a criação do recurso.
-            execution_in (int): Dias desde a última execução.
-        """
+    ):
         lifecycle = self.get_lifecycle(monitoring)
 
         if resource_name in [
@@ -89,46 +65,28 @@ class RosieLifecycleManager:
             'rosie-orquestrador',
             'ROSIE',
             'rosie-control_table',
-        ]:
+            'rosie-control_table_backup'
+            ]:
             return 'ROSIE', 'ignore', 'IGNORE - Recurso de monitoramento da ROSIE.', None, 'ROSIE'
+
 
         if created_in is None:
             created_in = self.calculate_days(self.date_status, creation_date)
         if execution_in is None:
             execution_in = self.calculate_days(self.date_status, last_execution_date)
 
-        if self.config['ROSIE_INFOS']['INSTALLATION']['LEGACY']['ENABLED']:
-            adequacy_term = self.config['ROSIE_INFOS']['INSTALLATION']['LEGACY']['ADEQUACY_TERM']
-            date_start = self.config['ROSIE_INFOS']['INSTALLATION']['LEGACY']['DATE_START']
-            start_in = self.calculate_days(self.date_status, date_start)
-
-            if start_in <= adequacy_term:
-                return 'N/A', 'legacy', f'LEGACY - Recurso dentro do prazo de adequacao de {adequacy_term} dia(s).', adequacy_term, lifecycle['TYPE_OF_MANAGEMENT']
-
         if lifecycle['TYPE_OF_MANAGEMENT'] == 'UNIQUE':
             return self.handle_unique_management(lifecycle, created_in)
 
         if lifecycle['TYPE_OF_MANAGEMENT'] == 'RESOURCE_NAME':
             return self.handle_resource_name_management(lifecycle, resource_name, created_in, execution_in)
-
+        
         if lifecycle['TYPE_OF_MANAGEMENT'] == 'TAG':
             return self.handle_tag_management(lifecycle, monitoring, client, resource_name, created_in, execution_in)
 
         return 'N/A', 'unknown', 'TYPE_OF_MANAGEMENT não cadastrado', None, lifecycle['TYPE_OF_MANAGEMENT']
 
-    def handle_unique_management(
-            self,
-            lifecycle: dict,
-            created_in: int
-            ):
-        """
-        Método para gerenciar o ciclo de vida de recursos
-        independente de classificação.
-
-        Args:
-            lifecycle (dict): Configuração do ciclo de vida.
-            created_in (int): Dias desde a criação do recurso.
-        """
+    def handle_unique_management(self, lifecycle: dict, created_in: int):
         if created_in > (lifecycle['RETENTION_DAYS'] - lifecycle['DELETION_ALERT_COMING_DAYS']) and created_in <= lifecycle['RETENTION_DAYS']:
             return 'deletion_coming', f'DELETE COMING - Tempo limite de retencao expirara em {abs(lifecycle["RETENTION_DAYS"] - created_in) + 1} dia(s).', lifecycle['RETENTION_DAYS'], lifecycle['TYPE_OF_MANAGEMENT']
         elif created_in > lifecycle['RETENTION_DAYS']:
@@ -136,23 +94,7 @@ class RosieLifecycleManager:
         else:
             return 'UNIQUE', 'keep', 'KEEP - Recursos dentro do tempo limite de retencao.', lifecycle['RETENTION_DAYS'], lifecycle['TYPE_OF_MANAGEMENT']
 
-    def handle_resource_name_management(
-            self,
-            lifecycle: dict,
-            resource_name: str,
-            created_in: int,
-            execution_in: int
-            ):
-        """
-        Método para gerenciar o ciclo de vida de recursos
-        baseado no nome do recurso.
-
-        Args:
-            lifecycle (dict): Configuração do ciclo de vida.
-            resource_name (str): Nome do recurso.
-            created_in (int): Dias desde a criação do recurso.
-            execution_in (int): Dias desde a última execução.
-        """
+    def handle_resource_name_management(self, lifecycle: dict, resource_name: str, created_in: int, execution_in: int):
         values = [value['VALUE'].upper() for value in lifecycle['DETAILS']['ALLOWED_VALUES']]
         type_of_management = lifecycle['TYPE_OF_MANAGEMENT']
         separator = lifecycle['DETAILS']['SEPARATOR']
@@ -164,28 +106,8 @@ class RosieLifecycleManager:
 
         retention_info = next(value for value in lifecycle['DETAILS']['ALLOWED_VALUES'] if value['VALUE'].upper() == classification)
         return self.handle_retention(retention_info, created_in, execution_in, classification, type_of_management)
-
-    def handle_tag_management(
-            self,
-            lifecycle: dict,
-            monitoring: str,
-            client: boto3.client,
-            resource_name: str,
-            created_in: int,
-            execution_in: int
-            ):
-        """
-        Método para gerenciar o ciclo de vida de recursos
-        baseado em TAG.
-
-        Args:
-            lifecycle (dict): Configuração do ciclo de vida.
-            monitoring (str): Nome do monitoramento.
-            client (boto3.client): Cliente boto3 para o monitoramento.
-            resource_name (str): Nome do recurso.
-            created_in (int): Dias desde a criação do recurso.
-            execution_in (int): Dias desde a última execução.
-        """
+    
+    def handle_tag_management(self, lifecycle: dict, monitoring: str, client: boto3.client, resource_name: str, created_in: int, execution_in: int):
         tag_name = lifecycle['DETAILS']['TAG_NAME']
         type_of_management = lifecycle['TYPE_OF_MANAGEMENT']
         values = [value['VALUE'].upper() for value in lifecycle['DETAILS']['ALLOWED_VALUES']]
@@ -195,31 +117,20 @@ class RosieLifecycleManager:
             classification = tags[tag_name].upper() if tags.get(tag_name) else 'N/A'
         elif monitoring == 'STEP_FUNCTIONS_MONITORING':
             tags = client.list_tags_for_resource(resourceArn=f"arn:aws:states:{self.region}:{self.account_id}:stateMachine:{resource_name}")['tags']
-            classification = tags[tag_name].upper() if tags.get(tag_name) else 'N/A'
+            tags_dict = {}
+            for tag in tags:
+                tags_dict[tag['key']] = tag['value']
+            classification = tags_dict[tag_name].upper() if tags_dict.get(tag_name) else 'N/A'
         else:
             raise Exception(f'Monitoramento via TAG não foi cadastrado para o monitoramento {monitoring}.')
 
         if classification not in values:
             return self.handle_irregular_format(lifecycle, created_in)
-
+        
         retention_info = next(value for value in lifecycle['DETAILS']['ALLOWED_VALUES'] if value['VALUE'].upper() == classification)
         return self.handle_retention(retention_info, created_in, execution_in, classification, type_of_management)
 
-    def classify_resource(
-            self,
-            resource_name: str, separator: str,
-            affix: str,
-            values: str
-            ):
-        """
-        Método para classificar o recurso baseado no nome.
-
-        Args:
-            resource_name (str): Nome do recurso.
-            separator (str): Separador do nome do recurso.
-            affix (str): Tipo de afixo usado para classificar.
-            values (str): Valores permitidos.
-        """
+    def classify_resource(self, resource_name, separator, affix, values):
         parts = resource_name.upper().split(separator)
         if affix == 'PREFIX':
             return parts[0]
@@ -231,19 +142,7 @@ class RosieLifecycleManager:
                     return part
         return 'N/A'
 
-    def handle_irregular_format(
-            self,
-            lifecycle: dict,
-            created_in: int
-            ):
-        """
-        Método para gerenciar o ciclo de vida de recursos
-        com formato irregular.
-
-        Args:
-            lifecycle (dict): Configuração do ciclo de vida.
-            created_in (int): Dias desde a criação do recurso.
-        """
+    def handle_irregular_format(self, lifecycle, created_in):
         if lifecycle['DETAILS']['IRREGULAR_FORMAT']['QUARANTINE']:
             if created_in <= lifecycle['DETAILS']['IRREGULAR_FORMAT']['QUARANTINE_DAYS']:
                 return 'N/A', 'quarantine', f'QUARANTINE - Recurso nao possui uma classificacao valida, e sera mantido por {lifecycle["DETAILS"]["IRREGULAR_FORMAT"]["QUARANTINE_DAYS"]} dia(s) para que seja adequado.', lifecycle['DETAILS']['IRREGULAR_FORMAT']['QUARANTINE_DAYS'], lifecycle['TYPE_OF_MANAGEMENT']
@@ -252,25 +151,7 @@ class RosieLifecycleManager:
         else:
             return 'N/A', 'delete', 'DELETE - Recurso deletado por nao possuir uma classificacao valida.', None, lifecycle['TYPE_OF_MANAGEMENT']
 
-    def handle_retention(
-            self,
-            retention_info: dict,
-            created_in: int,
-            execution_in: int,
-            classification: str,
-            type_of_management: str
-            ):
-        """
-        Método para calcular o ciclo de vida de recursos
-        baseado na classificação.
-
-        Args:
-            retention_info (dict): Informações de retenção.
-            created_in (int): Dias desde a criação do recurso.
-            execution_in (int): Dias desde a última execução.
-            classification (str): Classificação do recurso.
-            type_of_management (str): Tipo de gerenciamento.
-        """
+    def handle_retention(self, retention_info, created_in, execution_in, classification, type_of_management):
         retention_days = retention_info['RETENTION_DAYS']
         deletion_alert_coming_days = retention_info['DELETION_ALERT_COMING_DAYS']
         check_idle = retention_info['CHECK_IDLE']
@@ -296,28 +177,8 @@ class RosieLifecycleManager:
                 return classification, 'keep', 'KEEP - Recurso ativo. Não há verificação de ociosidade.', None, type_of_management
 
 class RosieTableMonitor:
-    """"
-    Classe para gerenciar a tabela de monitoramento da ROSIE.
 
-    Args:
-        config (dict): Input do arquivo de configuração.
-        date_status (str): Data de execução do monitoramento.
-
-    Attributes:
-        config (dict): Input do arquivo de configuração.
-        date_status (str): Data de execução do monitoramento.
-        ano (str): Ano da data de execução.
-        mes (str): Mês da data de execução.
-        dia (str): Dia da data de execução.
-        database (str): Nome do banco de dados.
-        table (str): Nome da tabela.
-        bucket (str): Nome do bucket.
-    """
-    def __init__(
-            self,
-            config: dict,
-            date_status: str
-            ):
+    def __init__(self, config: dict, date_status: str):
         self.config = config
         self.date_status = date_status
         self.ano = self.date_status.split('-')[0]
@@ -327,18 +188,7 @@ class RosieTableMonitor:
         self.table = config['ROSIE_INFOS']['INSTALLATION']['RUNTIME']['TABLE_NAME']
         self.bucket = config['ROSIE_INFOS']['INSTALLATION']['RUNTIME']['BUCKET_NAME']
 
-    def save_result(self,
-                    verify_list: list,
-                    service: str
-                    ):
-        """"
-        Método para salvar o resultado do monitoramento na tabela.
-
-        Args:
-            verify_list (list): Lista de dicionários com os dados
-            do monitoramento.
-            service (str): Nome do serviço monitorado.
-        """
+    def save_result(self, verify_list: list, service: str):
         uuid = str(uuid4())
 
         if len(verify_list) > 0:
@@ -349,18 +199,7 @@ class RosieTableMonitor:
         else:
             print('Nenhum dado para salvar')
 
-    def create_partition(
-            self,
-            glue_client: boto3.client,
-            service: str
-            ):
-        """"
-        Método para criar a partição na tabela de monitoramento.
-
-        Args:
-            glue_client (boto3.client): Cliente boto3 para o Glue.
-            service (str): Nome do serviço monitorado.
-        """
+    def create_partition(self, glue_client: boto3.client, service: str):
         table_data = self.get_current_schema(glue_client=glue_client)
         partition_list = self.generate_partition(table_data, service)
 
@@ -373,20 +212,9 @@ class RosieTableMonitor:
             print(f"Partição criada com sucesso para a tabela {self.table} no banco de dados {self.database}") 
         except Exception as e:
             print(f"Erro ao criar partição para a tabela {self.table} no banco de dados {self.database}: {e}")
+            sys.exit(1)
 
-    def get_current_schema(
-            self,
-            glue_client: boto3.client
-            ) -> dict:
-        """"
-        Método para buscar o schema atual da tabela.
-
-        Args:
-            glue_client (boto3.client): Cliente boto3 para o Glue.
-
-        Returns:
-            dict: Dicionário com os dados da tabela.
-        """
+    def get_current_schema(self, glue_client: boto3.client) -> dict:
         try:
             response = glue_client.get_table(
                 DatabaseName=self.database,
@@ -394,7 +222,8 @@ class RosieTableMonitor:
             )
         except Exception as e:
             print(f"Erro ao buscar tabela {self.table} no banco de dados {self.database}: {e}")
-
+            sys.exit(1)
+        
         table_data = {}
         table_data['input_format'] = response['Table']['StorageDescriptor']['InputFormat']
         table_data['output_format'] = response['Table']['StorageDescriptor']['OutputFormat']
@@ -403,22 +232,8 @@ class RosieTableMonitor:
         table_data['partition_keys'] = response['Table']['PartitionKeys']
 
         return table_data
-
-    def generate_partition(
-            self,
-            table_data: dict,
-            service: str
-            ) -> list:
-        """"
-        Método para gerar a partição da tabela.
-
-        Args:
-            table_data (dict): Dicionário com os dados da tabela.
-            service (str): Nome do serviço monitorado.
-
-        Returns:
-            list: Lista de dicionários com os dados da partição.
-        """
+    
+    def generate_partition(self, table_data: dict, service: str) -> list:
         partition_list = []
         part_location = f'{table_data["location"]}/ano_dt_safra={self.ano}/mes_dt_safra={self.mes}/dia_dt_safra={self.dia}/tipo={service}'
         input_dict = {
@@ -437,63 +252,12 @@ class RosieTableMonitor:
         }
         partition_list.append(input_dict.copy())
         return partition_list
-
-class RosieCleaner:
-    """
-    Classe para limpeza de recursos monitorados pela ROSIE.
-
-    Attributes:
-        config (dict): Input do arquivo de configuração.
-        date_status (str): Data de execução do monitoramento.
-    """
-    def __init__(self,
-                 config: dict,
-                 date_status: str,
-                 boto3_session: boto3.Session,
-                 ):
-        self.session = boto3_session,
-        self.config = config,
-        self.date_status = date_status
-
-
-    def clean_glue(
-            self,
-            client: boto3.client = self.session.client('glue'),
-            service: str
-            ):
-        
-        glue_list = []
-
-        resource_list = get_list(client, service)
-
-
+    
 class RosieUtils:
-    """
-    Classe com métodos utilitários para a ROSIE.
-
-    Attributes:
-        None
-    """
     def __init__(self):
         pass
 
-    def get_size_s3(
-            self,
-            client: boto3.client,
-            bucket: str,
-            folder: str
-            ):
-        """
-        Método para buscar o tamanho de um diretório no S3 em mega bytes.
-
-        Args:
-            client (boto3.client): Cliente boto3 para o S3.
-            bucket (str): Nome do bucket.
-            folder (str): Path do diretório buscado.
-
-        Returns:
-            str: Tamanho do diretório em mega bytes.
-        """
+    def get_size_s3(self, client: boto3.client, bucket: str, folder: str):
         tmp_size_list = []
 
         paginator = client.get_paginator('list_objects_v2')
@@ -526,24 +290,9 @@ class RosieUtils:
         total_size = "%.2f" % total_size
 
         return f"{total_size}mb"
+    
+    def creation_date_s3(self, client: boto3.client, bucket: str, folder: str):
 
-    def creation_date_s3(
-            self,
-            client: boto3.client,
-            bucket: str,
-            folder: str
-            ) -> str:
-        """
-        Método para buscar a data de criação de um diretório no S3.
-
-        Args:
-            client (boto3.client): Cliente boto3 para o S3.
-            bucket (str): Nome do bucket.
-            folder (str): Path do diretório buscado.
-
-        Returns:
-            str: Data de criação do diretório.
-        """
         tmp_created_in = []
 
         response = client.list_objects_v2(
@@ -568,24 +317,8 @@ class RosieUtils:
                         tmp_created_in.append(file['LastModified'].strftime('%Y-%m-%d'))
 
         return min(tmp_created_in), max(tmp_created_in)
-
+    
 class Rosie:
-    """
-    Classe principal da ROSIE.
-
-    Args:
-        config (dict): Input do arquivo de configuração.
-
-    Attributes:
-        session (boto3.Session): Sessão boto3.
-        config (dict): Input do arquivo de configuração.
-        date_status (str): Data de execução do monitoramento.
-        lifecycle_manager (RosieLifecycleManager): Instância da classe
-        RosieLifecycleManager.
-        table_monitor (RosieTableMonitor): Instância da classe
-        RosieTableMonitor.
-        rosie_utils (RosieUtils): Instância da classe RosieUtils.
-    """
     def __init__(self, config):
         self.session = boto3.Session()
         self.config = config
@@ -594,11 +327,10 @@ class Rosie:
         self.table_monitor = RosieTableMonitor(config, self.date_status)
         self.rosie_utils = RosieUtils()
 
-    def monitor_glue(self):
-        """
-        Método para monitorar os jobs do Glue.
-        """
-
+    def monitor_glue(
+            self
+        ):
+        
         client = self.session.client('glue')
         service = 'GLUE'
         service = service.upper()
@@ -666,6 +398,8 @@ class Rosie:
                     last_execution_date=last_execution_date
                 )
 
+                status, reason = self.lifecycle_manager.verify_legacy(status, reason)
+
                 print(f"Tipo: {resource_type}")
 
                 verify_item = {
@@ -693,11 +427,10 @@ class Rosie:
         self.table_monitor.save_result(verify_list=verify, service=service)
         self.table_monitor.create_partition(glue_client=client, service=service)
 
-    def monitor_sfn(self):
-        """"
-        Método para monitorar as Step Functions.
-        """
-
+    def monitor_sfn(
+            self
+        ):
+        
         client = self.session.client('stepfunctions')
         glue_client = self.session.client('glue')
         service = 'STEP_FUNCTIONS'
@@ -736,7 +469,7 @@ class Rosie:
                         executions = client.list_executions(
                             stateMachineArn=state_machine_arn
                             )
-
+                    
                     total_executions += len(executions['executions'])
 
                     if executions['executions'] and last_execution is None:
@@ -762,6 +495,8 @@ class Rosie:
                     creation_date=creation_date,
                     last_execution_date=last_execution_date
                 )
+
+                status, reason = self.lifecycle_manager.verify_legacy(status, reason)
 
                 verify_item = {
                     'nome_recurso': state_machine_name,
@@ -791,17 +526,15 @@ class Rosie:
     def monitor_s3(
             self,
             buckets: list = [{'bucket': 'itau-self-wkp-us-east-1-197045787308', 'prefixes': ['', 'dados/'], 'objectNotDelete': ['dados/']}]
-            ):
-        """"
-        Método para monitorar as tabelas no buckets do S3.
-        """
+        ):
+        
         client = self.session.client('s3')
         glue_client = self.session.client('glue')
         service = 'S3'
         service = service.upper()
 
         verify = []
-
+        
         for bucket in buckets:
             for prefix in bucket['prefixes']:
                 temp_list = [{'folder': []}, {'file': []}]
@@ -816,28 +549,28 @@ class Rosie:
                             pref = item['Prefix']
                         else:
                             pref = item.get('Prefix')
-
+                        
                         if not pref in bucket['objectNotDelete'] and not pref in bucket['prefixes']:
                             if pref not in temp_list[0]['folder']:
                                 temp_list[0]['folder'].append(pref)
                             else:
                                 print(f'Pasta {pref} já foi adicionada')
                                 continue
-
+                
                 if 'Contents' in response:
                     for item in response['Contents']:
                         if len(prefix.split('/')) > 2:
                             pref = item['Key']
                         else:
                             pref = item.get('Key')
-
+                    
                         if not pref in bucket['objectNotDelete'] and not pref in bucket['prefixes']:
                             if pref not in temp_list[1]['file']:
                                 temp_list[1]['file'].append(pref)
                             else:
                                 print(f'Arquivo {pref} já foi adicionado')
                                 continue
-
+                
                 for item in temp_list:
                     typeOfObject = list(item.keys())[0]
                     objects = list(item.values())[0]
@@ -868,6 +601,8 @@ class Rosie:
                                 creation_date=creation_date,
                                 last_execution_date=creation_date
                             )
+
+                            status, reason = self.lifecycle_manager.verify_legacy(status, reason)
                         elif sub_name == 'ROSIE':
                             resource_class = 'N/A'
                             status = 'ignore'
@@ -880,6 +615,8 @@ class Rosie:
                             reason = 'DELETE - Objeto fora do diretório de monitoramento.'
                             retention_days = None
                             type_of_management = self.config['ROSIE_INFOS']['INSTALLATION']['RUNTIME']['MONITORING'][f'{service}_MONITORING']['LIFECYCLE']['TYPE_OF_MANAGEMENT']
+
+                            status, reason = self.lifecycle_manager.verify_legacy(status, reason)
 
                         verify_item = {
                             'nome_recurso': f's3://{bucket["bucket"]}/{obj}',
@@ -905,11 +642,8 @@ class Rosie:
             self,
             databases: list = ['workspace_db'],
             buckets: list = [{'bucket': 'itau-self-wkp-us-east-1-197045787308', 'prefixes': ['', 'dados/'], 'objectNotDelete': ['dados/']}]
-            ):
-        """"
-        Método para monitorar as tabelas no Data Catalog.
-        """
-
+        ):
+        
         s3_client = self.session.client('s3')
         glue_client = self.session.client('glue')
         service = 'DATA_CATALOG'
@@ -927,7 +661,7 @@ class Rosie:
                     response = glue_client.get_tables(
                         DatabaseName=database
                         )
-
+                
                 for table in response['TableList']:
                     path_location = table['StorageDescriptor']['Location'] if 'StorageDescriptor' in table and 'Location' in table['StorageDescriptor'] else ''
                     table_name = table['Name']
@@ -944,6 +678,8 @@ class Rosie:
                         creation_date=creation_date,
                         last_execution_date=last_updated
                     )
+
+                    status, reason = self.lifecycle_manager.verify_legacy(status, reason)
 
                     bucket_name = path_location.split('/')[2]
                     obj = '/'.join(path_location.split('/')[3:])
@@ -974,3 +710,327 @@ class Rosie:
 
         self.table_monitor.save_result(verify_list=verify, service=service)
         self.table_monitor.create_partition(glue_client=glue_client, service=service)
+
+class RosieCleaner:
+    """
+    Classe para limpeza de recursos monitorados pela ROSIE.
+
+    Attributes:
+        config (dict): Input do arquivo de configuração.
+    """
+    def __init__(self,
+                 config: dict,
+                 ):
+        
+        self.session = boto3.Session(),
+        self.date_status = str(datetime.datetime.now().strftime('%Y-%m-%d'))
+        self.config = config,
+        self.table_monitor = RosieTableMonitor(config, self.date_status)
+
+    def get_list(
+            self,
+            services: list,
+            query_execution_id: str = None
+            ):
+        """
+        Método para buscar a lista de recursos monitorados pela ROSIE,
+        com status de DELETE.
+
+        Args:
+            services (str): Nome do recurso.
+            query_execution_id (str): ID da execução da query.
+        return:
+            pd.DataFrame: Dataframe com a lista de recursos para deletar.
+        """
+
+        services = ', '.join([f"'{item}'" for item in services])
+        workgroup = self.config['ROSIE_INFOS']['INSTALLATION']['RUNTIME']['WORKGROUP_ATHENA']
+        database = self.config['ROSIE_INFOS']['INSTALLATION']['RUNTIME']['DATABASE_NAME']
+        tabela = self.config['ROSIE_INFOS']['INSTALLATION']['RUNTIME']['TABLE_NAME']
+        s3_output = self.config['ROSIE_INFOS']['INSTALLATION']['RUNTIME']['S3_OUTPUT']
+
+        ano = self.date_status.split('-')[0]
+        mes = self.date_status.split('-')[1]
+        dia = self.date_status.split('-')[2]
+
+        query = f"""
+            SELECT * 
+            FROM {database}."{tabela}"
+            WHERE ano_dt_safra = '{ano}'
+            AND mes_dt_safra = '{mes}'
+            AND dia_dt_safra = '{dia}'
+            AND status = 'delete'
+            AND tipo IN ({services})"""
+        
+        if not query_execution_id:
+            response = self.session.client('athena').start_query_execution(
+                QueryString=query,
+                QueryExecutionContext={
+                    'Database': database
+                },
+                ResultConfiguration={
+                    'OutputLocation': s3_output
+                },
+                WorkGroup=workgroup
+            )
+
+            query_execution_id = response['QueryExecutionId']
+        
+        status = 'RUNNING'
+        
+        while status == 'RUNNING':
+            time.sleep(5)
+            response = self.session.client('athena').get_query_execution(
+                QueryExecutionId=query_execution_id
+            )
+            status = response['QueryExecution']['Status']['State']
+
+        if status != 'SUCCEEDED':
+            raise Exception(f"Erro ao executar a query: {query}")
+        
+        result_s3_path = response['QueryExecution']['ResultConfiguration']['OutputLocation']
+        result = self.session.client('s3').get_object(
+            Bucket=result_s3_path.split('/')[2],
+            Key='/'.join(result_s3_path.split('/')[3:])
+        )
+        result = pd.read_csv(result['Body'])
+
+        return result
+        
+
+    def clean(
+            self,
+            services: list,
+    ):
+        """
+        Método para deletar os recursos monitorados pela ROSIE.
+
+        Args:
+            services (str): Nomes dos recurso.
+        """
+
+        list_not_delete = [
+            'rosie-step_functions_monitoring',
+            'rosie-glue_monitoring',
+            'rosie-data_catalog_monitoring',
+            'rosie-s3_monitoring',
+            'rosie-orquestrador',
+            'ROSIE',
+            'rosie-control_table',
+            'rosie-control_table_backup'
+            ]
+
+        glue_list = []
+        sfn_list = []
+        s3_list = []
+        data_catalog_list = []
+        unmapped_list = []
+
+        BUCKET = self.config['ROSIE_INFOS']['INSTALLATION']['RUNTIME']['BUCKET_NAME']
+        AWS_REGION = self.config['ROSIE_INFOS']['INSTALLATION']['AWS_ACCOUNT']['AWS_REGION']
+        AWS_ACCOUNT_ID = self.config['ROSIE_INFOS']['INSTALLATION']['AWS_ACCOUNT']['AWS_ACCOUNT_ID']
+
+        bucketr = self.session.client('s3').Bucket(self.config['ROSIE_INFOS']['INSTALLATION']['RUNTIME']['BUCKET_NAME'])
+
+        resource_list = self.get_list(services=services, date_status=self.date_status)
+        resource_list = resource_list.drop(columns=['ano_dt_safra', 'mes_dt_safra', 'dia_dt_safra', 'tipo'])
+        resource_list.insert(3, 'dt_delete', None)
+        resource_list.insert(4, 'dias_delete', None)
+
+        print("Total de recursos para deletar:", len(resource_list))
+
+        for index, row in resource_list.iterrows():
+            resource = row['nome_recurso']
+            
+            if row['servico'] == 'GLUE':
+                if resource in list_not_delete:
+                    continue
+                else:
+                    try:
+                        print(f"Realizando backup dos metadados do recurso {resource}")
+                        response = self.session.client('glue').get_job(
+                            JobName=resource
+                        )
+                        tags = self.session.client('glue').get_tags(
+                            ResourceArn=f"arn:aws:glue:{AWS_REGION}:{AWS_ACCOUNT_ID}:job/{resource}"
+                        )
+                        metadata = response['Job']
+                        metadata['Tags'] = tags['Tags']
+
+                        self.session.client('s3').put_object(
+                            Bucket=f'{BUCKET}',
+                            Key=f"ROSIE/backup/GLUE/metadata/{metadata['Name']}.json",
+                            Body=json.dumps(metadata)
+                        )
+                        print(f"Backup dos metadados do recurso {resource} realizado com sucesso")
+
+                        print(f"Deletando recurso {resource}")
+                        self.session.client('glue').delete_job(
+                            JobName=resource
+                        )
+                        print(f"Recurso {resource} deletado com sucesso")
+                        glue_list.append(resource)
+
+                        resource_list.at[index, 'dt_delete'] = self.date_status
+                        resource_list.at[index, 'status'] = 'deleted - backup'
+                        resource_list.at[index, 'dias_delete'] = 0
+
+                    except Exception as e:
+                        print(f"Erro ao fazer backup dos metadados do recurso e deletar o recurso {resource}: {e}")
+
+                        resource_list.at[index, 'status'] = 'error'
+                                            
+                    try:
+                        print(f"Realizando backup do script {resource}")
+                        response = self.session.client('glue').get_job(
+                            JobName=resource
+                        )
+                        script_location = response['Job']['Command']['ScriptLocation']
+                        self.session.client('s3').copy_object(
+                            Bucket=f'{BUCKET}',
+                            CopySource={
+                                'Bucket': script_location.split('/')[2],
+                                'Key': '/'.join(script_location.split('/')[3:])
+                            },
+                            Key=f"ROSIE/backup/GLUE/scripts/{response['Job']['Name']}.{script_location.split('.')[-1]}"
+                        )
+                        print(f"Backup do script {resource} realizado com sucesso")
+
+                        print(f"Deletando script {resource}")
+                        self.session.client('s3').delete_object(
+                            Bucket=script_location.split('/')[2],
+                            Key='/'.join(script_location.split('/')[3:])
+                        )
+                        print(f"Script {resource} deletado com sucesso")
+
+                    except Exception as e:
+                        print(f"Erro ao fazer backup do script e deletar o script {resource}: {e}")
+
+            elif row['servico'] == 'STEP_FUNCTIONS':
+                if resource in list_not_delete:
+                    continue
+                else:
+                    try:
+                        print(f"Realizando backup dos metadados do recurso {resource}")
+                        response = self.session.client('stepfunctions').describe_state_machine(
+                            stateMachineArn=f"arn:aws:states:{AWS_REGION}:{AWS_ACCOUNT_ID}:stateMachine:{resource}"
+                        )
+                        response.pop('ResponseMetadata', None)
+                        definition = response['definition']
+                        response.pop('definition', None)
+                        self.session.client('s3').put_object(
+                            Bucket=f'{BUCKET}',
+                            Key=f"ROSIE/backup/STEP_FUNCTIONS/metadata/{resource}.json",
+                            Body=json.dumps(response)
+                        )
+                        self.session.client('s3').put_object(
+                            Bucket=f'{BUCKET}',
+                            Key=f"ROSIE/backup/STEP_FUNCTIONS/definition/{resource}.json",
+                            Body=json.dumps(definition)
+                        )
+                        print(f"Backup dos metadados do recurso {resource} realizado com sucesso")
+
+                        print(f"Deletando recurso {resource}")
+                        self.session.client('stepfunctions').delete_state_machine(
+                            stateMachineArn=f"arn:aws:states:{AWS_REGION}:{AWS_ACCOUNT_ID}:stateMachine:{resource}"
+                        )
+                        print(f"Recurso {resource} deletado com sucesso")
+                        sfn_list.append(resource)
+
+                        resource_list.at[index, 'dt_delete'] = self.date_status
+                        resource_list.at[index, 'status'] = 'deleted - backup'
+                        resource_list.at[index, 'dias_delete'] = 0
+                    except Exception as e:
+                        print(f"Erro ao realizar backup dos metadados e deletar o recurso {resource}: {e}")
+
+                        resource_list.at[index, 'status'] = 'error'
+
+            elif row['servico'] == 'S3':
+                resource = row['nome_recurso'].replace(f's3://{BUCKET}/', '')
+                if resource in list_not_delete:
+                    continue
+                else:
+                    try:
+                        print(f"Realizando backup dos dados do recurso {resource}")
+                        self.session.client('s3').copy_object(
+                            Bucket=f'{BUCKET}',
+                            CopySource={
+                                'Bucket': resource.split('/')[2],
+                                'Key': '/'.join(script_location.split('/')[3:])
+                            },
+                            Key=f"ROSIE/backup/S3/{'/'.join(script_location.split('/')[3:])}"
+                        )
+                        print(f"Backup dos dados do recurso {resource} realizado com sucesso")
+
+                        print(f"Deletando recurso {resource}")
+                        bucketr.objects.filter(Prefix=resource).delete()
+                        print(f"Recurso {resource} deletado com sucesso")
+                        s3_list.append(f's3://{BUCKET}/{resource}')
+
+                        resource_list.at[index, 'dt_delete'] = self.date_status
+                        resource_list.at[index, 'status'] = 'deleted - backup'
+                        resource_list.at[index, 'dias_delete'] = 0
+                    except Exception as e:
+                        print(f"Erro ao realizar backup dos dados e deletar o recurso {resource}: {e}")
+
+                        resource_list.at[index, 'status'] = 'error'
+
+            elif row['servico'] == 'DATA_CATALOG':
+
+                database = row['database']
+                table = row['nome_recurso']
+                bucket = row['nome_recurso'].split('/')[2]
+                s3_path = '/'.join(row['nome_recurso'].split('/')[3:])
+
+                if table in list_not_delete:
+                    continue
+                else:
+                    try:
+                        print(f"Realizando backup dos metadados do recurso {database}.{table}")
+                        response = self.session.client('glue').get_table(
+                            DatabaseName=database,
+                            Name=table
+                        )
+                        response.pop('ResponseMetadata', None)
+                        self.session.client('s3').put_object(
+                            Bucket=f'{BUCKET}',
+                            Key=f"ROSIE/backup/DATA_CATALOG/metadata/{database}.{table}.json",
+                            Body=json.dumps(response)
+                        )
+                        print(f"Backup dos metadados do recurso {database}.{table} realizado com sucesso")
+
+                        print(f"Deletando recurso {database}.{table}")
+                        self.session.client('glue').delete_table(
+                            DatabaseName=database,
+                            Name=table
+                        )
+                        print(f"Recurso {database}.{table} deletado com sucesso")
+                        print(f"Deletando dados no {s3_path}, respectivo a tabela lógica {database}.{table}")
+                        self.session.client('s3').Bucket(bucket).objects.filter(Prefix=s3_path).delete()
+                        print(f"Dados deletados com sucesso!")
+                        data_catalog_list.append(table)
+
+                        resource_list.at[index, 'dt_delete'] = self.date_status
+                        resource_list.at[index, 'status'] = 'deleted - backup'
+                        resource_list.at[index, 'dias_delete'] = 0
+                    except Exception as e:
+                        print(f"Erro ao realizar backup dos metadados e deletar o recurso {database}.{table}: {e}")
+
+                        resource_list.at[index, 'status'] = 'error'
+            else:
+                resource = row['nome_recurso']
+                unmapped_list.append(row['nome_recurso'])
+
+        print("Lista de recursos GLUE deletados: ", glue_list)
+        print("Total de recursos GLUE deletados: ", len(glue_list))
+        print("Lista de recursos STEP FUNCTIONS deletados: ", sfn_list)
+        print("Total de recursos STEP FUNCTIONS deletados: ", len(sfn_list))
+        print("Lista de recursos S3 deletados: ", s3_list)
+        print("Total de recursos S3 deletados: ", len(s3_list))
+        print("Lista de recursos DATA CATALOG deletados: ", data_catalog_list)
+        print("Total de recursos DATA CATALOG deletados: ", len(data_catalog_list))
+        print("Lista de recursos não mapeados: ", unmapped_list)
+        print("Total de recursos não mapeados: ", len(unmapped_list))
+
+        self.table_monitor.save_result(verify_list=resource_list.to_dict('records'), service='rosie-cleaner')
+        self.table_monitor.create_partition(service='rosie-cleaner')

@@ -21,16 +21,16 @@ def create(
         response = None
 
     if response:
-        print(f"{BLUE_START}{BOLD_START}\n🔵 Módulo de monitoramento para os recursos {glue_job_name.replace('_monitoring', '').replace('rosie-', '').replace('_', ' ').upper()} já existe na conta!{END}")
+        print(f"{BLUE_START}{BOLD_START}\n🔵 Módulo de monitoramento {glue_job_name.replace('_monitoring', '').replace('rosie-', '').replace('_', ' ').upper()} já existe na conta!{END}")
         glue_client.delete_job(JobName=glue_job_name)
-        print(f"{YELLOW_START}{BOLD_START}⏳ Recriando módulo de monitoramento para os recursos {glue_job_name.replace('_monitoring', '').replace('rosie-', '').replace('_', ' ').upper()} ...{END}")
+        print(f"{YELLOW_START}{BOLD_START}⏳ Recriando módulo de monitoramento {glue_job_name.replace('_monitoring', '').replace('rosie-', '').replace('_', ' ').upper()} ...{END}")
     else:
-        print(f"{YELLOW_START}{BOLD_START}\n⏳ Criando módulo de monitoramento para os recursos {glue_job_name.replace('_monitoring', '').replace('rosie-', '').replace('_', ' ').upper()} ...{END}")
+        print(f"{YELLOW_START}{BOLD_START}\n⏳ Criando módulo de monitoramento {glue_job_name.replace('_monitoring', '').replace('rosie-', '').replace('_', ' ').upper()} ...{END}")
 
     try:
         response = glue_client.create_job(
             Name=glue_job_name,
-            Description=f"ROSIE - Job de monitoramento para os recursos {glue_job_name.replace('_monitoring', '').replace('rosie-', '').replace('_', ' ')}",
+            Description=f"ROSIE - Job de monitoramento {glue_job_name.replace('_monitoring', '').replace('rosie-', '').replace('_', ' ')}",
             Role=role_arn,
             Command={
                 'Name': 'pythonshell',
@@ -70,8 +70,8 @@ def delete(
         response = None
 
     if response:
-        print(f"{BLUE_START}{BOLD_START}\n🟡 Módulo de monitoramento para os recursos {glue_job_name.replace('_monitoring', '').replace('rosie-', '').replace('_', ' ').upper()} desativado!{END}")
-        print(f"{YELLOW_START}{BOLD_START}⏳ Deletando módulo de monitoramento para os recursos {glue_job_name.replace('_monitoring', '').replace('rosie-', '').replace('_', ' ').upper()} ...{END}")
+        print(f"{BLUE_START}{BOLD_START}\n🟡 Módulo de monitoramento {glue_job_name.replace('_monitoring', '').replace('rosie-', '').replace('_', ' ').upper()} desativado!{END}")
+        print(f"{YELLOW_START}{BOLD_START}⏳ Deletando módulo de monitoramento {glue_job_name.replace('_monitoring', '').replace('rosie-', '').replace('_', ' ').upper()} ...{END}")
         glue_client.delete_job(JobName=glue_job_name)
         print(f"{GREEN_START}{BOLD_START}✅ Módulo de monitoramento deletado com sucesso!{END}")
     else:

@@ -68,12 +68,10 @@ def get_lifecycle_details(lifecycle: str, resource_name: str) -> dict:
 def get_lifecycle_details_unique(resource_name: str) -> dict:
     retention_days = validate_number_input(f"\nQual o tempo de retenção {YELLOW_START}(em dias){END} que deseja configurar para o recurso {resource_name}? ", 6, 'MAIOR')
     retention_alert_coming_days = validate_number_input(f"Qual o tempo de antecedência {YELLOW_START}(em dias){END} que deseja ser alertado sobre a deleção dos recursos do {resource_name}?\nO valor deve ser menor que {retention_days} dias(s): ", retention_days, 'MENOR')
-    backup_days = validate_number_input(f"Qual o tempo de BACKUP {YELLOW_START}(em dias){END} que deseja configurar para os recursos {resource_name}, após o mesmo ser deletado? ", 6, 'MAIOR')
     return {
         "TYPE_OF_MANAGEMENT": "UNIQUE",
         "RETENTION_DAYS": retention_days,
-        "DELETION_ALERT_COMING_DAYS": retention_alert_coming_days,
-        "BACKUP_DAYS": backup_days
+        "DELETION_ALERT_COMING_DAYS": retention_alert_coming_days
     }
 
 def get_lifecycle_details_tag(resource_name: str) -> dict:
@@ -96,13 +94,11 @@ def get_tag_value_details(value: str, resource_name: str) -> dict:
     if lifecycle_retention:
         retention_days = validate_number_input(f"Qual o tempo de retenção {YELLOW_START}(em dias){END} que deseja configurar para o valor da TAG {YELLOW_START}'{value}'{END} do recurso {resource_name}? ", 6, 'MAIOR')
         retention_alert_coming_days = validate_number_input(f"Qual o tempo de antecedência {YELLOW_START}(em dias){END} que deseja ser alertado sobre a deleção dos recursos do {resource_name} com a TAG {YELLOW_START}'{value}'{END}?\nO valor deve ser menor que {retention_days} dias(s): ", retention_days, 'MENOR')
-        backup_days = validate_number_input(f"Qual o tempo de BACKUP (em dias) que deseja configurar para os recursos {resource_name} com a TAG {YELLOW_START}'{value}'{END}, após o mesmo ser deletado? ", 6, 'MAIOR')
         return {
             "VALUE": value,
             "RETENTION": True,
             "RETENTION_DAYS": retention_days,
             "DELETION_ALERT_COMING_DAYS": retention_alert_coming_days,
-            "BACKUP_DAYS": backup_days,
             "CHECK_IDLE": False,
             "IDLE_DAYS": None
         }
@@ -114,13 +110,11 @@ def get_idle_check_details(value: str, resource_name: str) -> dict:
     if check_idle:
         idle_days = validate_number_input(f"Qual o tempo de inatividade {YELLOW_START}(em dias){END} que deseja configurar para os recursos {resource_name} com a TAG {YELLOW_START}'{value}'{END} possam ser deletados? ", 6, 'MAIOR')
         retention_alert_coming_days = validate_number_input(f"Quando dias antes deseja definir para que recursos ociosos do {resource_name} com a TAG {YELLOW_START}'{value}'{END} sejam alertados sobre a deleção? {YELLOW_START}(em dias){END}\nO valor deve ser menor que {idle_days} dia(s): ", idle_days, 'MENOR')
-        backup_days = validate_number_input(f"Qual o tempo de BACKUP {YELLOW_START}(em dias){END} que deseja configurar para os recursos {resource_name} com a TAG {YELLOW_START}'{value}'{END}, após o mesmo ser deletado? ", 0, 'MAIOR')
         return {
             "VALUE": value,
             "RETENTION": False,
             "RETENTION_DAYS": None,
             "DELETION_ALERT_COMING_DAYS": retention_alert_coming_days,
-            "BACKUP_DAYS": backup_days,
             "CHECK_IDLE": check_idle,
             "IDLE_DAYS": idle_days
         }
@@ -130,7 +124,6 @@ def get_idle_check_details(value: str, resource_name: str) -> dict:
             "RETENTION": False,
             "RETENTION_DAYS": None,
             "DELETION_ALERT_COMING_DAYS": None,
-            "BACKUP_DAYS": None,
             "CHECK_IDLE": check_idle,
             "IDLE_DAYS": None
         }
