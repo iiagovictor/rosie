@@ -1053,10 +1053,7 @@ class RosieCleaner:
         print("Total de recursos DATA CATALOG deletados: ", len(data_catalog_list))
         print("Lista de recursos não mapeados: ", unmapped_list)
         print("Total de recursos não mapeados: ", len(unmapped_list))
-
-        import pandas as pd
         
-        # Supondo que resource_list seja um DataFrame do pandas
         resource_list = resource_list.astype(str)
         resource_list = resource_list.applymap(lambda x: None if x in ['None', 'nan'] else x)
         
@@ -1065,7 +1062,6 @@ class RosieCleaner:
                 return None
             return int(float(x))
         
-        # Aplicando a conversão segura para inteiros
         resource_list['dias_criacao'] = resource_list['dias_criacao'].apply(lambda x: x.split('.')[0] if x is not None else x)
         resource_list['dias_criacao'] = resource_list['dias_criacao'].apply(safe_int_conversion)
         resource_list['dias_ultima_atualizacao'] = resource_list['dias_ultima_atualizacao'].apply(lambda x: x.split('.')[0] if x is not None else x)
@@ -1073,13 +1069,9 @@ class RosieCleaner:
         resource_list['qtd_execucoes'] = resource_list['qtd_execucoes'].apply(lambda x: x.split('.')[0] if x is not None else x)
         resource_list['qtd_execucoes'] = resource_list['qtd_execucoes'].apply(safe_int_conversion)
         
-        # Convertendo as colunas para inteiros
         resource_list['dias_criacao'] = resource_list['dias_criacao'].astype('Int64')
         resource_list['dias_ultima_atualizacao'] = resource_list['dias_ultima_atualizacao'].astype('Int64')
         resource_list['qtd_execucoes'] = resource_list['qtd_execucoes'].astype('Int64')
-        
-        # Salvando o DataFrame no formato Parquet
-        resource_list.to_parquet('s3://itau-self-wkp-us-east-1-197045787308/ROSIE/rosie-control_table/ano_dt_safra=2025/mes_dt_safra=02/dia_dt_safra=06/tipo=CLEANER/2025-02-06-e48153b0-0431-4f85-afc9-b81b7d724c40.parquet')
 
         self.table_monitor.save_result(verify_list=resource_list.to_dict('records'), service='CLEANER')
         self.table_monitor.create_partition(service='CLEANER')
