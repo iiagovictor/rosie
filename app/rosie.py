@@ -824,6 +824,7 @@ class RosieCleaner:
         data_catalog_list = []
         unmapped_list = []
         BUCKET = self.config['ROSIE_INFOS']['INSTALLATION']['RUNTIME']['BUCKET_NAME']
+        ENABLE_BACKUP = self.config['ROSIE_INFOS']['INSTALLATION']['RUNTIME']['BACKUP']['ENABLE_BACKUP']
         AWS_REGION = self.config['ROSIE_INFOS']['INSTALLATION']['AWS_ACCOUNT']['AWS_REGION']
         AWS_ACCOUNT_ID = self.config['ROSIE_INFOS']['INSTALLATION']['AWS_ACCOUNT']['AWS_ACCOUNT_ID']
 
@@ -843,22 +844,23 @@ class RosieCleaner:
                     continue
                 else:
                     try:
-                        print(f"Realizando backup dos metadados do recurso '{resource}'")
-                        response = self.session.client('glue').get_job(
-                            JobName=resource
-                        )
-                        tags = self.session.client('glue').get_tags(
-                            ResourceArn=f"arn:aws:glue:{AWS_REGION}:{AWS_ACCOUNT_ID}:job/{resource}"
-                        )
-                        metadata = response['Job']
-                        metadata['Tags'] = tags['Tags']
+                        if ENABLE_BACKUP:
+                            print(f"Realizando backup dos metadados do recurso '{resource}'")
+                            response = self.session.client('glue').get_job(
+                                JobName=resource
+                            )
+                            tags = self.session.client('glue').get_tags(
+                                ResourceArn=f"arn:aws:glue:{AWS_REGION}:{AWS_ACCOUNT_ID}:job/{resource}"
+                            )
+                            metadata = response['Job']
+                            metadata['Tags'] = tags['Tags']
 
-                        self.session.client('s3').put_object(
-                            Bucket=f'{BUCKET}',
-                            Key=f"ROSIE/backup/GLUE/metadata/{metadata['Name']}.pkl",
-                            Body=pickle.dumps(metadata)
-                        )
-                        print(f"Backup dos metadados do recurso '{resource}' realizado com sucesso")
+                            self.session.client('s3').put_object(
+                                Bucket=f'{BUCKET}',
+                                Key=f"ROSIE/backup/GLUE/metadata/{metadata['Name']}.pkl",
+                                Body=pickle.dumps(metadata)
+                            )
+                            print(f"Backup dos metadados do recurso '{resource}' realizado com sucesso")
 
                         print(f"Deletando recurso '{resource}'")
                         self.session.client('glue').delete_job(
@@ -868,7 +870,7 @@ class RosieCleaner:
                         glue_list.append(resource)
 
                         resource_list.at[index, 'dt_delete'] = self.date_status
-                        resource_list.at[index, 'status'] = 'deleted - backup'
+                        resource_list.at[index, 'status'] = 'deleted - backup' if ENABLE_BACKUP else 'deleted'
 
                     except Exception as e:
                         print(f"Erro ao fazer backup dos metadados do recurso e deletar o recurso '{resource}': {e}")
@@ -876,17 +878,18 @@ class RosieCleaner:
                         resource_list.at[index, 'status'] = 'error'
                                             
                     try:
-                        print(f"Realizando backup do script '{resource}'")
-                        script_location = response['Job']['Command']['ScriptLocation']
-                        self.session.client('s3').copy_object(
-                            Bucket=f'{BUCKET}',
-                            CopySource={
-                                'Bucket': script_location.split('/')[2],
-                                'Key': '/'.join(script_location.split('/')[3:])
-                            },
-                            Key=f"ROSIE/backup/GLUE/scripts/{response['Job']['Name']}.{script_location.split('.')[-1]}"
-                        )
-                        print(f"Backup do script '{resource}' realizado com sucesso")
+                        if ENABLE_BACKUP:
+                            print(f"Realizando backup do script '{resource}'")
+                            script_location = response['Job']['Command']['ScriptLocation']
+                            self.session.client('s3').copy_object(
+                                Bucket=f'{BUCKET}',
+                                CopySource={
+                                    'Bucket': script_location.split('/')[2],
+                                    'Key': '/'.join(script_location.split('/')[3:])
+                                },
+                                Key=f"ROSIE/backup/GLUE/scripts/{response['Job']['Name']}.{script_location.split('.')[-1]}"
+                            )
+                            print(f"Backup do script '{resource}' realizado com sucesso")
 
                         print(f"Deletando script '{resource}'")
                         self.session.client('s3').delete_object(
@@ -904,24 +907,25 @@ class RosieCleaner:
                     continue
                 else:
                     try:
-                        print(f"Realizando backup dos metadados do recurso '{resource}'")
-                        response = self.session.client('stepfunctions').describe_state_machine(
-                            stateMachineArn=f"arn:aws:states:{AWS_REGION}:{AWS_ACCOUNT_ID}:stateMachine:{resource}"
-                        )
-                        response.pop('ResponseMetadata', None)
-                        definition = response['definition']
-                        response.pop('definition', None)
-                        self.session.client('s3').put_object(
-                            Bucket=f'{BUCKET}',
-                            Key=f"ROSIE/backup/STEP_FUNCTIONS/metadata/{resource}.pkl",
-                            Body=pickle.dumps(response)
-                        )
-                        self.session.client('s3').put_object(
-                            Bucket=f'{BUCKET}',
-                            Key=f"ROSIE/backup/STEP_FUNCTIONS/definition/{resource}.json",
-                            Body=json.dumps(definition)
-                        )
-                        print(f"Backup dos metadados do recurso '{resource}' realizado com sucesso")
+                        if ENABLE_BACKUP:
+                            print(f"Realizando backup dos metadados do recurso '{resource}'")
+                            response = self.session.client('stepfunctions').describe_state_machine(
+                                stateMachineArn=f"arn:aws:states:{AWS_REGION}:{AWS_ACCOUNT_ID}:stateMachine:{resource}"
+                            )
+                            response.pop('ResponseMetadata', None)
+                            definition = response['definition']
+                            response.pop('definition', None)
+                            self.session.client('s3').put_object(
+                                Bucket=f'{BUCKET}',
+                                Key=f"ROSIE/backup/STEP_FUNCTIONS/metadata/{resource}.pkl",
+                                Body=pickle.dumps(response)
+                            )
+                            self.session.client('s3').put_object(
+                                Bucket=f'{BUCKET}',
+                                Key=f"ROSIE/backup/STEP_FUNCTIONS/definition/{resource}.json",
+                                Body=json.dumps(definition)
+                            )
+                            print(f"Backup dos metadados do recurso '{resource}' realizado com sucesso")
 
                         print(f"Deletando recurso '{resource}'")
                         self.session.client('stepfunctions').delete_state_machine(
@@ -931,7 +935,7 @@ class RosieCleaner:
                         sfn_list.append(resource)
 
                         resource_list.at[index, 'dt_delete'] = self.date_status
-                        resource_list.at[index, 'status'] = 'deleted - backup'
+                        resource_list.at[index, 'status'] = 'deleted - backup' if ENABLE_BACKUP else 'deleted'
                     except Exception as e:
                         print(f"Erro ao realizar backup dos metadados e deletar o recurso '{resource}': {e}")
 
@@ -943,27 +947,28 @@ class RosieCleaner:
                     continue
                 else:
                     try:
-                        print(f"Realizando backup dos dados do recurso '{resource}'")
-                        bucket_name = resource.split('/')[2]
-                        prefix = '/'.join(resource.split('/')[3:])
-                        
-                        bucket = self.session.resource('s3').Bucket(bucket_name)
-                        
-                        objects = bucket.objects.filter(Prefix=prefix)
-                        
-                        for obj in objects:
-                            copy_source = {
-                                'Bucket': bucket_name,
-                                'Key': obj.key
-                            }
-                            destination_key = f"ROSIE/backup/S3/{obj.key}"
-                            self.session.client('s3').copy_object(
-                                Bucket=BUCKET,
-                                CopySource=copy_source,
-                                Key=destination_key
-                            )
-                        
-                        print(f"Backup dos dados do recurso '{resource}' realizado com sucesso")
+                        if ENABLE_BACKUP:
+                            print(f"Realizando backup dos dados do recurso '{resource}'")
+                            bucket_name = resource.split('/')[2]
+                            prefix = '/'.join(resource.split('/')[3:])
+                            
+                            bucket = self.session.resource('s3').Bucket(bucket_name)
+                            
+                            objects = bucket.objects.filter(Prefix=prefix)
+                            
+                            for obj in objects:
+                                copy_source = {
+                                    'Bucket': bucket_name,
+                                    'Key': obj.key
+                                }
+                                destination_key = f"ROSIE/backup/S3/{obj.key}"
+                                self.session.client('s3').copy_object(
+                                    Bucket=BUCKET,
+                                    CopySource=copy_source,
+                                    Key=destination_key
+                                )
+                            
+                            print(f"Backup dos dados do recurso '{resource}' realizado com sucesso")
 
                         print(f"Deletando recurso '{resource}'")
                         bucketr.objects.filter(Prefix='/'.join(resource.split('/')[3:])).delete()
@@ -971,7 +976,7 @@ class RosieCleaner:
                         s3_list.append(f's3://{BUCKET}/{resource}')
 
                         resource_list.at[index, 'dt_delete'] = self.date_status
-                        resource_list.at[index, 'status'] = 'deleted - backup'
+                        resource_list.at[index, 'status'] = 'deleted - backup' if ENABLE_BACKUP else 'deleted'
                     except Exception as e:
                         print(f"Erro ao realizar backup dos dados e deletar o recurso '{resource}': {e}")
 
@@ -989,18 +994,19 @@ class RosieCleaner:
                     continue
                 else:
                     try:
-                        print(f"Realizando backup dos metadados do recurso '{database}.{table}'")
-                        response = self.session.client('glue').get_table(
-                            DatabaseName=database,
-                            Name=table
-                        )
-                        response.pop('ResponseMetadata', None)
-                        self.session.client('s3').put_object(
-                            Bucket=f'{BUCKET}',
-                            Key=f"ROSIE/backup/DATA_CATALOG/metadata/{database}.{table}.pkl",
-                            Body=pickle.dumps(response)
-                        )
-                        print(f"Backup dos metadados do recurso '{database}.{table}' realizado com sucesso")
+                        if ENABLE_BACKUP:
+                            print(f"Realizando backup dos metadados do recurso '{database}.{table}'")
+                            response = self.session.client('glue').get_table(
+                                DatabaseName=database,
+                                Name=table
+                            )
+                            response.pop('ResponseMetadata', None)
+                            self.session.client('s3').put_object(
+                                Bucket=f'{BUCKET}',
+                                Key=f"ROSIE/backup/DATA_CATALOG/metadata/{database}.{table}.pkl",
+                                Body=pickle.dumps(response)
+                            )
+                            print(f"Backup dos metadados do recurso '{database}.{table}' realizado com sucesso")
 
                         print(f"Deletando recurso '{database}.{table}'")
                         self.session.client('glue').delete_table(
@@ -1010,31 +1016,32 @@ class RosieCleaner:
                         print(f"Recurso '{database}.{table}' deletado com sucesso")
 
                         resource_list.at[index, 'dt_delete'] = self.date_status
-                        resource_list.at[index, 'status'] = 'deleted - backup'
+                        resource_list.at[index, 'status'] = 'deleted - backup' if ENABLE_BACKUP else 'deleted'
                     except Exception as e:
                         print(f"Erro ao realizar backup dos metadados e deletar o recurso '{database}.{table}': {e}")
                         resource_list.at[index, 'status'] = 'error'
                     
                     try:
-                        print(f"Realizando backup dos dados no {s3_path}, respectivo a tabela lógica '{database}.{table}'")
-                        if s3_path not in ['', 'dados/']:
-                            print(f"Deletando dados no {s3_path}, respectivo a tabela lógica '{database}.{table}'")
-                            
-                            objects = self.session.resource('s3').Bucket(bucket).objects.filter(Prefix=s3_path)
+                        if ENABLE_BACKUP:
+                            print(f"Realizando backup dos dados no {s3_path}, respectivo a tabela lógica '{database}.{table}'")
+                            if s3_path not in ['', 'dados/']:
+                                print(f"Deletando dados no {s3_path}, respectivo a tabela lógica '{database}.{table}'")
+                                
+                                objects = self.session.resource('s3').Bucket(bucket).objects.filter(Prefix=s3_path)
 
-                            for obj in objects:
-                                copy_source = {
-                                    'Bucket': bucket,
-                                    'Key': obj.key
-                                }
-                                destination_key = f"ROSIE/backup/DATA_CATALOG/data/{obj.key}"
-                                self.session.client('s3').copy_object(
-                                    Bucket=BUCKET,
-                                    CopySource=copy_source,
-                                    Key=destination_key
-                                )
-                            self.session.resource('s3').Bucket(bucket).objects.filter(Prefix=s3_path).delete()
-                            print(f"Dados deletados com sucesso!")
+                                for obj in objects:
+                                    copy_source = {
+                                        'Bucket': bucket,
+                                        'Key': obj.key
+                                    }
+                                    destination_key = f"ROSIE/backup/DATA_CATALOG/data/{obj.key}"
+                                    self.session.client('s3').copy_object(
+                                        Bucket=BUCKET,
+                                        CopySource=copy_source,
+                                        Key=destination_key
+                                    )
+                                self.session.resource('s3').Bucket(bucket).objects.filter(Prefix=s3_path).delete()
+                                print(f"Dados deletados com sucesso!")
                     except Exception as e:
                         print(f"Erro ao deletar os dados no {s3_path}, respectivo a tabela lógica '{database}.{table}': {e}")                    
 
